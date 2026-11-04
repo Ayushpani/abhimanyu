@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Abhimanyu</string>
+    <string name="tap_to_speak">Tap and speak</string>
+    <string name="listening">Listening…</string>
+    <string name="thinking">Thinking…</string>
+    <string name="mic_description">Talk to Abhimanyu</string>
+    <string name="setup_title">Setup</string>
+    <string name="import_english">Import English model</string>
+    <string name="import_hindi">Import Hindi model</string>
+</resources>

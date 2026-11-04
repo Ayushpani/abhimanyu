@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="bg">#0E0B16</color>
+    <color name="surface">#1A1626</color>
+    <color name="text">#F3EFFA</color>
+    <color name="text_dim">#A49DB5</color>
+    <color name="saffron">#FF9430</color>
+    <color name="magenta">#EB3894</color>
+    <color name="indigo">#5547F2</color>
+    <color name="ok">#5FD49A</color>
+    <color name="warn">#F2B45A</color>
+</resources>

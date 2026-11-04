@@ -1,0 +1,63 @@
+name: Build APK
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Install Android SDK packages
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0" > /dev/null
+
+      # Same signing key on every build, so a new APK installs over the old one
+      # without uninstalling (which would wipe the imported speech models).
+      - name: Restore signing key
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: abhimanyu-debug-keystore-v1
+
+      - name: Core tests (parser, tiers, reply templates)
+        run: ./gradlew -p core test --no-daemon
+
+      - name: Build debug APK
+        run: ./gradlew :app:assembleDebug --no-daemon
+
+      - name: Check the APK has no internet permission
+        run: |
+          APK=app/build/outputs/apk/debug/app-debug.apk
+          PERMS=$("$ANDROID_HOME/build-tools/35.0.0/aapt2" dump permissions "$APK")
+          echo "$PERMS"
+          if echo "$PERMS" | grep -E "android.permission.(INTERNET|ACCESS_NETWORK_STATE)"; then
+            echo "::error::The APK requests network access. Abhimanyu must stay offline."
+            exit 1
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: abhimanyu-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: test-reports
+          path: |
+            core/build/reports/
+            app/build/reports/
