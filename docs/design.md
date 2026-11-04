@@ -2,7 +2,16 @@
 
 Nov 3, 2026 · @Wealthz · Revised Nov 4, 2026
 
-## Latest change: anyone's voice works for now
+## Latest change: Gemma 4 from day one
+
+- **Gemma 4 E2B is the main path from Phase 1**, not Phase 2. The Vosk speech-to-text plus rules path is now an optional backup, installed only if you want it.
+- **Getting the model:** Android keeps each app's downloads private, so the copy Edge Gallery downloads can't be read by Abhimanyu. You download `gemma-4-E2B-it.litertlm` once in Chrome and import it with the file picker. Edge Gallery stays the place to benchmark speed.
+- **How Gemma is used:**
+  - Each command gets a fresh conversation, built ahead of time so the instructions are already processed when you speak.
+  - Gemma receives the WAV clip, and constrained decoding forces its reply into one JSON object: transcript, language and tool.
+  - The app checks every field before anything runs. An unknown tool or an out-of-range value is rejected. If the arguments are incomplete, the rule parser gets a second look at Gemma's transcript.
+
+## Earlier change: anyone's voice works for now
 
 - **"Hey Abhimanyu" wakes the assistant for any voice.** The owner-only voice check is set aside for now. Your voice sounds different through earphones, in a car, or when you're tired, and a strict check would get in the way of simple things like answering a call while driving. It moves out of the main build into a later, optional phase (Phase 5), switched off by default.
 - **What still protects the phone:** Tier 1 needs the phone unlocked and Tier 2 needs fingerprint, exactly as before. Tier 3 stays blocked. Without the voice check, only Tier 0 actions are open to anyone near the phone who says the wake word. These are harmless things like the flashlight, a timer, volume, answering a call or locking the phone.
@@ -532,9 +541,9 @@ Reading any message or notification aloud, any photo access, payments and UPI, b
 
 Eight phases, each ending in a test you run on your phone; don't start the next phase until the current test passes.
 
-1. **Push-to-talk basics.** Tap a button, speak, and Tier 0 commands run through Layer 1. It uses Vosk and simple rules, which later become the fallback path. The glow is drawn around the app's own screen, and reply templates exist in all three languages.
+1. **Push-to-talk basics with Gemma.** Tap a button, speak, and Tier 0 commands run through Layer 1. Gemma 4 E2B hears the audio and picks the command; Vosk and simple rules are the optional backup. The glow is drawn around the app's own screen, and reply templates exist in all three languages.
    - Test: 20 commands like "flashlight on", "torch band karo" and "timer 5 minutes", with at least 18 correct, each under 2 seconds. The glow follows your voice smoothly.
-2. **Router and tool catalog.** Add Gemma 4 E2B with audio input, the language tag and the full tool list. Also add contact matching in both scripts and spoken replies in the matching language.
+2. **Router and tool catalog.** Extend Gemma's tool list to the full catalog (apps, navigation, messages, calls), and add contact matching in both scripts.
    - Test: 30 varied commands, 10 each in English, Hindi and Hinglish. At least 27 are correct. The reply language matches in at least 29. Ambiguous names trigger a question, never a guess. Indian times ("saade chhe", "paune aath") are parsed correctly.
 3. **Risk gate and fingerprint.** Add tiers, per-step task tiers, read-back, fingerprint confirmation and the blocked-app list.
    - Test: every Tier 2 action asks for fingerprint, and "yes" alone never sends. A blocked app is refused even when asked directly.
