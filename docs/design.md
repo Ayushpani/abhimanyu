@@ -2,7 +2,16 @@
 
 Nov 3, 2026 · @Wealthz · Revised Nov 4, 2026
 
-## What changed in this revision
+## Latest change: anyone's voice works for now
+
+- **"Hey Abhimanyu" wakes the assistant for any voice.** The owner-only voice check is set aside for now. Your voice sounds different through earphones, in a car, or when you're tired, and a strict check would get in the way of simple things like answering a call while driving. It moves out of the main build into a later, optional phase (Phase 5), switched off by default.
+- **What still protects the phone:** Tier 1 needs the phone unlocked and Tier 2 needs fingerprint, exactly as before. Tier 3 stays blocked. Without the voice check, only Tier 0 actions are open to anyone near the phone who says the wake word. These are harmless things like the flashlight, a timer, volume, answering a call or locking the phone.
+- **Hands-free window narrowed:** while the voice check is off, it covers calls to saved contacts only. Messages still need a fingerprint, because otherwise a passenger could send WhatsApps from your phone.
+- **New: driving with earphones.** Incoming calls can be answered or declined by just saying "answer", "uthao" or "cut karo" while the phone rings, with no wake word needed. Replies play in your earphones. See [Driving with earphones](#driving-with-earphones).
+- **Wake word trained on many voices.** It is trained on many different speakers, on earphone mics and on car noise, instead of mainly your own recordings.
+- **Paused until the voice check returns:** auto-lockdown, "Any failed attempts?", the "Not you" glow state, and the voice-based threat defences.
+
+## Earlier changes in this revision
 
 - **New: the glow.** A light, inspired by Siri, glows around the screen edges whenever the assistant is listening, thinking or acting. It follows your voice and never takes a touch, focus or screen content. See [The glow](#the-glow-visual-feedback-while-you-speak).
 - **Languages settled.** It understands English, Hindi and Hinglish, and replies in the language you used for each command. All spoken replies come from fixed templates in the three languages, never from free model text. See [Languages](#languages).
@@ -27,7 +36,7 @@ The assistant lets one person control a Pixel 10a by voice, fully offline, with 
 
 ### Goals
 
-- Respond only to the owner's voice, verified on every command.
+- Respond to "Hey Abhimanyu" from any voice for now; an owner-only voice check can be switched on later (Phase 5).
 - Work hands-free and eyes-free: every action is confirmed by speech, never only on screen.
 - Show at a glance that it is listening, with a light that never gets in the way of what you are doing.
 - Work on the lock screen for low-risk actions; ask for fingerprint for anything sensitive.
@@ -108,13 +117,13 @@ The assistant can tap, swipe, type and pinch inside whatever app is open, just a
 
 ## End-to-end pipeline
 
-Every command takes the same seven steps, and nothing reaches the phone until it passes both the voice check and the risk gate.
+Every command takes the same seven steps, and nothing reaches the phone until it passes the risk gate.
 
-1. **Wake:** the openWakeWord model hears "Hey Abhimanyu".
-2. **Quick voice check:** the speaker model scores the wake phrase itself in about 50 ms. If it isn't you, the clip is dropped silently: no glow, no tone, no model run. If it is, the glow rises and the listening tone plays, about 150 ms after you finish the wake phrase.
+1. **Wake:** the openWakeWord model hears "Hey Abhimanyu", from any voice.
+2. **Quick voice check (off for now):** when switched on in Phase 5, the speaker model scores the wake phrase in about 50 ms and silently drops voices that aren't yours. While it is off, this step is skipped. The glow rises and the listening tone plays about 100 ms after you finish the wake phrase.
 3. **Capture:** voice activity detection records the command and trims it to your speech, up to 8 s. The glow follows the loudness of your voice.
-4. **Understand and verify, in parallel:** Gemma 4 E2B returns the transcript, the language (`en`, `hi` or `hinglish`) and one tool call. At the same time, the speaker model checks the command audio. Instant keywords such as "stop" skip the model entirely. The glow switches to "thinking".
-5. **Risk gate:** the tool's tier and the voice score decide the proof needed: voice only, unlocked phone, fingerprint plus read-back, or blocked.
+4. **Understand:** Gemma 4 E2B returns the transcript, the language (`en`, `hi` or `hinglish`) and one tool call. When the voice check is on, the speaker model checks the command audio at the same time. Instant keywords such as "stop" skip the model entirely. The glow switches to "thinking".
+5. **Risk gate:** the tool's tier decides the proof needed: nothing more for Tier 0, unlocked phone, fingerprint plus read-back, or blocked. When the voice check is on, a borderline voice score also asks for fingerprint.
 6. **Act:** run the action through the cheapest working layer (API, intent, accessibility tree, vision).
 7. **Verify and speak:** check the phone actually changed state, then play the done tone and speak a one-line result in your language. The glow flashes once and fades.
 
@@ -134,7 +143,7 @@ A soft light flows around the edges of the screen whenever the assistant is acti
 | Working | A thin, calm line along the edges, brightening a little after each completed step | During multi-step app tasks |
 | Done | One soft flash, then fades out in 300 ms | Action verified |
 | Failed or refused | Fades out in a dim warm tone | Error, timeout, blocked app |
-| Not you | Nothing at all | The quick voice check failed, so a stranger never learns the assistant exists |
+| Not you | Nothing at all | Only when the voice check is switched on (Phase 5): a stranger never learns the assistant exists |
 
 ### Why it never gets in the way
 
@@ -215,20 +224,31 @@ You can override this with "always reply in English", "hamesha Hindi mein bolo" 
 
 ## Security model
 
-Every action has a fixed risk tier, and the tier decides what proof is needed. Voice is checked on every command, but voice alone only unlocks low-risk actions, because recordings and AI voice clones can fool any voice check.
+Every action has a fixed risk tier, and the tier decides what proof is needed. For now, anyone who says "Hey Abhimanyu" reaches Tier 0. Everything above Tier 0 is protected by the phone's own unlock and fingerprint, which never depended on the voice check. Even when the owner-only voice check is switched on later, voice alone will only ever unlock Tier 0, because recordings and AI voice clones can fool any voice check.
 
 | Tier | Proof needed | Works when locked | Actions |
 |---|---|---|---|
-| 0. Safe | Owner's voice | Yes | Time, flashlight, timer, alarm, volume, ringer, brightness, media play/pause, Do Not Disturb, lock phone, answer or end calls, photo with the secure camera, reply language and captions |
-| 1. Personal | Owner's voice + phone unlocked | No, fingerprint unlocks it | Open apps, navigation, app searches, in-app taps that don't commit anything, dark mode, battery saver |
-| 2. Sensitive | Owner's voice + spoken read-back + fingerprint (or challenge phrase inside a hands-free window) | No, fingerprint unlocks it | Send messages, make calls, Wi-Fi, mobile data, Bluetooth, hotspot and airplane mode, any task step that sends, posts, deletes, buys or shares, saving a taught task, clearing history |
+| 0. Safe | Wake word (plus owner's voice, once the voice check is on) | Yes | Time, flashlight, timer, alarm, volume, ringer, brightness, media play/pause, Do Not Disturb, lock phone, answer or end calls, photo with the secure camera, reply language and captions |
+| 1. Personal | Phone unlocked | No, fingerprint unlocks it | Open apps, navigation, app searches, in-app taps that don't commit anything, dark mode, battery saver |
+| 2. Sensitive | Spoken read-back + fingerprint (or, for calls, a challenge phrase inside a hands-free window) | No, fingerprint unlocks it | Send messages, make calls, Wi-Fi, mobile data, Bluetooth, hotspot and airplane mode, any task step that sends, posts, deletes, buys or shares, saving a taught task, clearing history |
 | 3. Blocked | Not possible by voice at all | Never | Payments, UPI and banking apps, Google Photos and gallery apps, any photo access, reading any message or notification aloud, entering passwords or OTPs, uninstalling apps, factory reset, changing the assistant's own security settings |
 
 **Tasks take the tier of their riskiest step.** "Switch Maps to satellite" stays Tier 1 throughout. "Share my trip with Mom" becomes Tier 2 at the Share step, and only that step needs confirmation. Commit buttons come from the playbook; in apps without one, any unrecognised button is treated as Tier 2.
 
 Blocked apps are on a hard-coded list of package names. If the planner ever lands on one of them mid-task, the task stops immediately.
 
-### Voice verification
+**What anyone can do while the voice check is off.** Someone near your phone who says "Hey Abhimanyu" can reach these Tier 0 actions, and nothing more:
+
+- Flashlight, timer, alarm, volume, ringer, brightness, media and Do Not Disturb.
+- Answering or ending a call, and locking the phone.
+- A photo with the secure camera, which can't see your gallery.
+- Lockdown, which only turns the assistant off until your fingerprint.
+
+The worst case is a prank such as muting your ringer. Every result is spoken, so you'll hear it happen. Unlocking, sending, calling out and changing connectivity all still need your fingerprint.
+
+### Voice verification (off for now, Phase 5)
+
+Everything in this subsection is built later and stays switched off until you turn it on. It is kept here so it can be added without redesigning anything.
 
 - A small on-device speaker-embedding model (ECAPA-TDNN class, about 6 to 20 MB) turns speech into a voiceprint, and compares it with your enrolled voiceprint.
 - **Two checks per command.** The wake phrase is checked first. It is always the same words, so it is the most accurate signal and it is fast enough to reject strangers before anything else runs. The command audio is then checked in parallel with the model.
@@ -238,11 +258,12 @@ Blocked apps are on a hard-coded list of package names. If the planner ever land
 
 ### Hands-free window (opt-in)
 
-Touching the fingerprint sensor for every message isn't hands-free when you're driving or cooking. Say "hands-free for 15 minutes" and touch the fingerprint sensor once. For that window:
+Touching the fingerprint sensor for every call isn't hands-free when you're driving or cooking. Say "hands-free for 15 minutes" and touch the fingerprint sensor once. For that window:
 
-- **Covered:** calls and messages to saved contacts. Each one still needs your voice, the read-back and a random challenge phrase spoken back ("Send to Rahul: I'll be late. Say 'mango seven' to send."). No touch is needed.
-- **Not covered:** new numbers, connectivity settings, saving taught tasks, and commit buttons in apps without a playbook. These still need the fingerprint.
-- **Ends early on:** "end hands-free", "lockdown", any rejected or borderline voice, or the time running out (15 minutes at most).
+- **Covered while the voice check is off:** calls to saved contacts. Each one still needs the read-back and a random challenge phrase spoken back ("Calling Mom. Say 'mango seven' to call."). No touch is needed.
+- **Added once the voice check is on:** messages to saved contacts, confirmed the same way. They are left out for now because, without the voice check, a passenger could send WhatsApps from your phone.
+- **Not covered:** new numbers, messages (for now), connectivity settings, saving taught tasks, and commit buttons in apps without a playbook. These still need the fingerprint.
+- **Ends early on:** "end hands-free", "lockdown", the time running out (15 minutes at most), or, once the voice check is on, any rejected or borderline voice.
 - **Enforced by hardware.** The window is a Keystore key that requires biometric authentication and stays usable only for the window's length. The Titan M2 chip enforces the timeout, not just the app's own code.
 - **Messages need the screen unlocked,** because WhatsApp's screens are hidden on the lock screen. Calls work while locked.
 
@@ -250,12 +271,14 @@ Touching the fingerprint sensor for every message isn't hands-free when you're d
 
 | Threat | Defence |
 |---|---|
-| Someone plays a recording of your voice | Tier 2 needs a fingerprint; inside a hands-free window, a random challenge phrase that a recording can't answer |
+| Someone else says "Hey Abhimanyu" (voice check off) | They reach Tier 0 only; every result is spoken aloud; unlock and fingerprint guard everything else |
+| Someone plays a recording of your voice | Tier 1 needs unlock and Tier 2 needs fingerprint; inside a hands-free window, a random challenge phrase that a recording can't answer |
+| A passenger speaks during a hands-free window | While the voice check is off, the window covers calls only, each with an audible read-back; messages need fingerprint |
 | AI voice clone of you | Fingerprint for every Tier 2 action outside the hands-free window; the window is opt-in, short and limited to saved contacts |
-| Someone nearby with a similar voice | Strict voiceprint threshold; borderline asks for fingerprint; below it, refused |
-| Repeated guessing by strangers | Auto-lockdown after 5 rejected voices in 10 minutes |
-| TV or video saying the wake word | The quick check on the wake phrase rejects voices that aren't yours |
-| Phone stolen while unlocked | Tier 2 still needs fingerprint; a rejected voice ends any hands-free window; "lockdown" disables the assistant until the next fingerprint |
+| Someone nearby with a similar voice (voice check on) | Strict voiceprint threshold; borderline asks for fingerprint; below it, refused |
+| Repeated guessing by strangers (voice check on) | Auto-lockdown after 5 rejected voices in 10 minutes |
+| TV or video saying the wake word | The two-word wake phrase rarely occurs on TV; even if it does, only Tier 0 is reachable. Once the voice check is on, voices that aren't yours are rejected |
+| Phone stolen while unlocked | Tier 2 still needs fingerprint; "lockdown" disables the assistant until the next fingerprint |
 | Another app sends fake commands | The service and its components are not exported, so no other app can call them |
 | Prompt injection from screen text | Screen text is passed to the model as quoted data; the goal is fixed at the start and cannot change mid-task |
 | Screen text leaking through speech | Replies are fixed templates; when stuck it names only buttons, never content |
@@ -285,6 +308,7 @@ Android deliberately limits always-listening and screen-controlling apps, so the
 | Battery optimization | Android may kill long-running services | Ask to be exempted from battery optimization during setup |
 | "Hey Google" low-power chip | Reserved for Google's assistant | Own wake word runs on the main processor; keep the model tiny |
 | Other apps using the mic | Calls, camera video and voice notes need the mic | Pause listening during recordings and resume after |
+| Earphone mics | Keeping a Bluetooth earphone mic open all the time switches the earphones to low-quality call mode and drains their battery | The wake word listens on the phone's own mic; replies and tones play in the earphones (see [Driving with earphones](#driving-with-earphones)) |
 | Mic during calls | Android may give other apps silence while a call holds the mic | Answer and decline work while ringing; in-call voice controls are tested in Phase 6 and dropped if the mic is silenced |
 | Fingerprint from the background | Android's fingerprint prompt needs a visible screen | Open a transparent screen that shows over the lock screen, then close it after the touch |
 | Drawing the glow | Normal overlays need "display over other apps" and don't show on the lock screen | Use the accessibility service's overlay window: no extra permission, not touchable, above the lock screen |
@@ -298,6 +322,17 @@ Android deliberately limits always-listening and screen-controlling apps, so the
 | 8 GB RAM | Can't hold a big model alongside everything else | Gemma 4 E2B fits in about 1.5 GB with memory-mapped weights; if Android unloads it, fall back to FunctionGemma and reload in the background |
 
 **Pixel 10a strengths to use:** the Titan M2 chip for StrongBox keys and the hands-free time limit, the in-display fingerprint sensor for Tier 2, LiteRT GPU acceleration on Tensor G4, and the 5100 mAh battery for always-on listening.
+
+## Driving with earphones
+
+The main hands-free case is driving with wired or Bluetooth earphones connected, phone in a mount or a pocket.
+
+- **Wake word on the phone's mic.** The wake word keeps listening through the phone's own microphone, even with earphones connected. It is trained on car noise and on voices from a distance, and it accepts any voice, so the slightly different way you sound in the car doesn't matter. Keeping a Bluetooth earphone mic open all the time would drop music to call quality and drain the earbuds, so it isn't used for listening.
+- **Replies in your ears.** Tones, read-backs and spoken results follow Android's audio route, so they play in the earphones, not the car or phone speaker. Music ducks briefly while it speaks.
+- **Answer without the wake word.** While a call is ringing, the assistant listens for a short list of words with no wake word needed: "answer", "uthao", "pick up", "decline", "cut karo", "reject". These work for the length of the ring only, and only for the ringing call. Answering is Tier 0, so it works on the lock screen with no touch. Once connected, the call's audio goes to your earphones as usual.
+- **Calling out while driving:** say "hands-free for 15 minutes" before you set off and touch the fingerprint sensor once. Calls to saved contacts then need only the read-back and the spoken challenge phrase.
+- **Navigation:** starting navigation needs the phone unlocked (Tier 1). Start it before driving, or unlock with one touch when asked.
+- **During a call:** if Android gives the assistant silence while a call holds the mic, you hang up with the earphones' own button. Phase 6 checks whether voice "hang up" can work.
 
 ## Setup and model files
 
@@ -318,7 +353,7 @@ Because the app has no internet permission, everything it needs is installed onc
 
    Each file is checked against its known SHA-256 hash, then copied into the app's private storage. You can delete the downloads afterwards.
 4. In Android's text-to-speech settings, download the Indian English and Hindi voices.
-5. Enroll your voice: 10 × "Hey Abhimanyu", 10 English phrases and 10 Hindi phrases, in a quiet room and then once with background noise.
+5. Voice enrollment is skipped for now. It comes back with Phase 5: 10 × "Hey Abhimanyu", 10 English phrases and 10 Hindi phrases.
 6. Run the built-in self-test: one command per tier, in each language.
 
 ## Failure handling and voice feedback
@@ -327,9 +362,9 @@ The assistant always tells you what happened in one spoken line, and "stop" or "
 
 | Situation | What it does | What it says |
 |---|---|---|
-| Voice doesn't match | Refuses, logs the attempt, no glow | Nothing on lock screen; "Abhimanyu didn't recognize your voice" when unlocked |
-| Too many voice rejections | Auto-lockdown until fingerprint | Nothing on lock screen; "Locked down, open the app to re-enable" when unlocked |
-| Voice match is borderline | Asks for fingerprint instead of refusing | "Please confirm with fingerprint" |
+| Voice doesn't match (voice check on) | Refuses, logs the attempt, no glow | Nothing on lock screen; "Abhimanyu didn't recognize your voice" when unlocked |
+| Too many voice rejections (voice check on) | Auto-lockdown until fingerprint | Nothing on lock screen; "Locked down, open the app to re-enable" when unlocked |
+| Voice match is borderline (voice check on) | Asks for fingerprint instead of refusing | "Please confirm with fingerprint" |
 | Didn't catch the words | Asks once more, then gives up | "Sorry, say that again?" |
 | Command is ambiguous | Asks one short question | "Rahul Sharma or Rahul Office?" |
 | Command is outside its tools | Refuses clearly | "I can't do that yet" |
@@ -364,13 +399,13 @@ Most everyday commands are fully reliable through Layers 1 and 2; app-specific t
 
 ## Full feature list
 
-Every feature, the exact action behind it and its risk tier. Tier 0 works while locked, Tier 1 needs the phone unlocked, and Tier 2 needs fingerprint (or a hands-free window). Every action ends with a tone, a glow and a one-line spoken result in your language. Every command first passes the "Hey Abhimanyu" wake word and the owner voice check.
+Every feature, the exact action behind it and its risk tier. Tier 0 works while locked, Tier 1 needs the phone unlocked, and Tier 2 needs fingerprint (or a hands-free window). Every action ends with a tone, a glow and a one-line spoken result in your language. Every command starts with the "Hey Abhimanyu" wake word, from any voice for now.
 
 ### Assistant controls
 
 | Feature | You say | Exact action | Tier |
 |---|---|---|---|
-| Wake up | "Hey Abhimanyu" | openWakeWord fires, quick voice check on the wake phrase, glow and rising tone, listens up to 8 s | 0 |
+| Wake up | "Hey Abhimanyu" | openWakeWord fires for any voice, glow and rising tone, listens up to 8 s | 0 |
 | Stop anything | "Stop", "cancel", "ruko", "bas" | Keyword spotter aborts the current task instantly, even mid-step | 0 |
 | Repeat | "Phir se", "do that again" | Reruns the last command; Tier 2 asks for confirmation again | Same as original |
 | Follow-up | "Make it 7 instead", "call him again" | Uses the last command's context, kept 2 minutes in memory only | Same as original |
@@ -378,11 +413,11 @@ Every feature, the exact action behind it and its risk tier. Tier 0 works while 
 | Reply language | "Always reply in English", "Hindi mein bolo", "match my language" | Sets the reply language preference | 0 |
 | Captions | "Captions on", "captions off" | Shows or hides the live caption pill | 0 |
 | Pause listening | "Stop listening" | Mic off until you tap Resume in the notification | 0 |
-| Hands-free window | "Hands-free for 15 minutes" | Fingerprint once; calls and messages to saved contacts then confirm by challenge phrase | 2 |
+| Hands-free window | "Hands-free for 15 minutes" | Fingerprint once; calls to saved contacts then confirm by challenge phrase (messages too, once the voice check is on) | 2 |
 | End hands-free | "End hands-free" | Closes the window immediately | 0 |
-| Lockdown | "Lockdown" | Assistant disabled until you open it and touch fingerprint; also automatic after 5 rejected voices in 10 minutes | 0 |
+| Lockdown | "Lockdown" | Assistant disabled until you open it and touch fingerprint; automatic after 5 rejected voices in 10 minutes once the voice check is on | 0 |
 | Clear history | "Clear history" | Deletes the encrypted action log | 2 |
-| Failed attempts | "Any failed attempts?" | Speaks the count of rejected voices since last check | 2 |
+| Failed attempts | "Any failed attempts?" | Speaks the count of rejected voices since last check; only once the voice check is on | 2 |
 
 ### Phone basics
 
@@ -419,8 +454,8 @@ Every feature, the exact action behind it and its risk tier. Tier 0 works while 
 | Feature | You say | Exact action | Tier |
 |---|---|---|---|
 | Call a contact | "Call Mom", "Mummy ko call karo" | Contact match, read-back "Calling Mom", confirmation, then `ACTION_CALL` | 2 |
-| Answer | "Answer", "uthao" | `TelecomManager.acceptRingingCall` | 0 |
-| End or decline | "Hang up", "cut karo" | `TelecomManager.endCall`, or tap End or Decline as a fallback | 0 |
+| Answer | "Answer", "uthao", "pick up" (no wake word needed while ringing) | `TelecomManager.acceptRingingCall`; audio goes to connected earphones | 0 |
+| End or decline | "Decline", "cut karo" while ringing (no wake word needed); "hang up" during a call | `TelecomManager.endCall`, or tap End or Decline as a fallback | 0 |
 | In-call controls | "Speaker on", "mute", "unmute" | Taps the dialer's Speaker or Mute button; only if Android lets the assistant hear you during a call (tested in Phase 6) | 0 |
 
 ### WhatsApp
@@ -503,9 +538,18 @@ Eight phases, each ending in a test you run on your phone; don't start the next 
    - Test: 30 varied commands, 10 each in English, Hindi and Hinglish. At least 27 are correct. The reply language matches in at least 29. Ambiguous names trigger a question, never a guess. Indian times ("saade chhe", "paune aath") are parsed correctly.
 3. **Risk gate and fingerprint.** Add tiers, per-step task tiers, read-back, fingerprint confirmation and the blocked-app list.
    - Test: every Tier 2 action asks for fingerprint, and "yes" alone never sends. A blocked app is refused even when asked directly.
-4. **Wake word, background service and the glow everywhere.** Always-on listening with the foreground notification, the boot reminder, and the accessibility service drawing the glow over every app.
-   - Test: fewer than 1 false wake per hour with TV on. The glow appears within 150 ms of the wake phrase. 20 of 20 taps, swipes and keystrokes made through the glow land normally. Battery drain is measured over a full day.
-5. **Voice verification.** Enrollment in English and Hindi, voiceprint in StrongBox, the quick wake-phrase check, auto-lockdown, challenge phrases and the hands-free window.
+4. **Wake word, background service and the glow everywhere.** This phase adds:
+   - Always-on listening for any voice, with the foreground notification and the boot reminder.
+   - Answering by voice while ringing, with no wake word.
+   - The accessibility service drawing the glow over every app.
+   - Test:
+     - Fewer than 1 false wake per hour with TV on.
+     - "Hey Abhimanyu" wakes it 19 of 20 times for you and for two other people. It also does so for you in a moving car with earphones connected.
+     - The glow appears within 150 ms.
+     - 20 of 20 taps, swipes and keystrokes made through the glow land normally.
+     - 10 incoming calls are answered by saying "uthao" with earphones on.
+     - Battery drain is measured over a full day.
+5. **Voice verification (deferred, optional).** Skipped for now. Phases 6 to 8 don't depend on it, so it can be added at any time and switched on in the app. Enrollment in English and Hindi, voiceprint in StrongBox, the quick wake-phrase check, auto-lockdown, challenge phrases and the hands-free window.
    - Test: your voice is accepted 19 of 20 times. A friend and a recording of you are both rejected for Tier 2, and the friend never sees the glow. The hands-free window ends on time and ends at once after a rejected voice.
 6. **Lock screen.** Tier 0 works while locked, including the secure camera and the glow over the lock screen. Higher tiers trigger the unlock prompt. This phase also checks whether in-call voice controls can hear you.
    - Test: 10 locked-phone commands, none reaching anything beyond Tier 0 without fingerprint. The secure camera can't reach the gallery.
@@ -520,9 +564,10 @@ The pass numbers are suggested starting targets; adjust them after the first mea
 
 Made on 4 November 2026.
 
-- [x] **Wake word:** a custom "Hey Abhimanyu" model trained with openWakeWord. Train it on synthetic clips plus 50 to 100 of your own recordings. Use "Abhimanyu" alone, "hey" alone, similar names like "Abhinav", and Hindi TV audio as negative examples. A two-word, five-syllable phrase that rarely comes up in daily speech gives far fewer false wakes than a single common word. The voice check still blocks anyone else who says it.
+- [x] **Wake word:** a custom "Hey Abhimanyu" model trained with openWakeWord. Train it on synthetic clips from many different voices, recordings through earphone and car-mount mics, car noise, and 50 to 100 of your own recordings. Use "Abhimanyu" alone, "hey" alone, similar names like "Abhinav", and Hindi TV audio as negative examples. A two-word, five-syllable phrase that rarely comes up in daily speech gives far fewer false wakes than a single common word. While the voice check is off, anyone who says it reaches only Tier 0.
 - [x] **Fallback speech-to-text:** Vosk, with its small Indian English and Hindi models (about 40 MB each). It's free, fully offline, streams results and is light enough to stay loaded; it only runs when Gemma 4 has been unloaded.
-- [x] **Owner-only voice** for every tier, including Tier 0, whether the phone is locked or unlocked.
+- [x] **Any voice for now (changed 4 Nov):** "Hey Abhimanyu" wakes the assistant for anyone. The owner-only voice check is deferred to an optional Phase 5 and stays switched off until you turn it on. Unlock and fingerprint still guard every action above Tier 0.
+- [x] **Wake phrase:** "Hey Abhimanyu" is the only wake phrase.
 - [x] **Messaging:** WhatsApp first; it gets the first and most complete playbook.
 - [x] **Notification reading:** never. The assistant has no notification-reading tool and never requests notification access.
 - [x] **Blocked apps:** payment, UPI and banking apps, plus Google Photos and other gallery apps. Email and Files are allowed.
@@ -533,8 +578,9 @@ Made on 4 November 2026.
 
 ### Proposed in this revision (confirm or change)
 
-- [ ] **Hands-free window:** opt-in, 15 minutes at most, calls and messages to saved contacts only, confirmed by challenge phrase.
+- [ ] **Hands-free window:** opt-in, 15 minutes at most, saved contacts only, confirmed by challenge phrase. It covers calls only while the voice check is off, and adds messages once it is on.
+- [ ] **Answer without wake word:** while a call is ringing, "answer", "uthao", "decline" and "cut karo" work without saying "Hey Abhimanyu" first.
 - [ ] **Message script:** Hindi and Hinglish messages are sent in Roman script by default; "Hindi script mein" switches to Devanagari.
 - [ ] **Live caption:** on by default when unlocked, always off on the lock screen.
 - [ ] **Tier changes:** brightness to Tier 0, dark mode and battery saver to Tier 1, and a photo with the secure camera while locked at Tier 0.
-- [ ] **Auto-lockdown:** after 5 rejected voices in 10 minutes.
+- [ ] **Auto-lockdown:** after 5 rejected voices in 10 minutes, once the voice check is on.
