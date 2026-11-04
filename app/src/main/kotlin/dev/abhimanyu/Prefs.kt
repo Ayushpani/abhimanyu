@@ -30,6 +30,19 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("always_listening", false)
         set(v) = sp.edit().putBoolean("always_listening", v).apply()
 
+    /** Gemma 4 multi-token prediction. Faster, but new; off by default. */
+    var fastDecoding: Boolean
+        get() = sp.getBoolean("fast_decoding", false)
+        set(v) = sp.edit().putBoolean("fast_decoding", v).apply()
+
+    /** Chosen offline TTS voice names, or null for automatic (prefers a male voice). */
+    var voiceEnglish: String?
+        get() = sp.getString("voice_en", null)
+        set(v) = sp.edit().putString("voice_en", v).apply()
+    var voiceHindi: String?
+        get() = sp.getString("voice_hi", null)
+        set(v) = sp.edit().putString("voice_hi", v).apply()
+
     var dndOffAt: Long
         get() = sp.getLong("dnd_off_at", 0L)
         set(v) = sp.edit().putLong("dnd_off_at", v).apply()

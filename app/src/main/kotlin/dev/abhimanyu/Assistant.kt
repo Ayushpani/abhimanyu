@@ -61,6 +61,9 @@ object Assistant {
     @Volatile var activityVisible = false
     @Volatile var modelsLoading = false
         private set
+    /** Why the last command didn't go through Gemma normally (shown in setup), or null. */
+    @Volatile var lastDiagnosis: String? = null
+        private set
     private var lastCommand: Command? = null
     private var initialized = false
 
@@ -136,20 +139,32 @@ object Assistant {
             var listenMs: Long? = null
             var writeMs: Long? = null
             val useGemma = gemmaReady() && pcm.size > SpeechCapture.SAMPLE_RATE / 4
+            // Why Gemma didn't give the answer, shown under the mic so problems can be diagnosed.
+            var diagnosis: String? = when {
+                !gemmaReady() -> "Gemma not loaded (${gemma.detail}); used backup"
+                !useGemma -> "clip too short (${pcm.size * 1000 / SpeechCapture.SAMPLE_RATE} ms)"
+                else -> null
+            }
             val fromGemma = if (useGemma) {
-                runCatching { gemma.understand(GemmaEngine.wav(pcm)) }.getOrNull()?.let { a ->
+                val answer = runCatching { gemma.understand(GemmaEngine.wav(pcm)) }
+                answer.exceptionOrNull()?.let { diagnosis = "Gemma failed: ${gemma.lastError ?: it.message}; used backup" }
+                answer.getOrNull()?.let { a ->
                     listenMs = a.listenMs
                     writeMs = a.writeMs
-                    Understanding.fromGemma(a.text)
+                    Understanding.fromGemma(a.text).also {
+                        if (it == null) diagnosis = "Gemma replied: " + a.text.replace('\n', ' ').take(140)
+                        else if (it !is Understanding.Decision.Run) diagnosis = "Gemma heard: " + a.text.replace('\n', ' ').take(140)
+                    }
                 }
             } else null
+            lastDiagnosis = diagnosis
             val decision = fromGemma ?: fromBackup(if (transcripts.isEmpty()) transcribe(pcm) else transcripts)
             val understoodAt = SystemClock.elapsedRealtime()
 
             val parsed: Parsed = when (decision) {
                 is Understanding.Decision.Run -> decision.parsed
                 is Understanding.Decision.OutOfScope -> {
-                    finish(Reply.CantDoYet, decision.lang, false, decision.transcript, null, null)
+                    finish(Reply.CantDoYet, decision.lang, false, decision.transcript, diagnosis, null)
                     gemma.prepareNext()
                     return@execute
                 }
@@ -159,7 +174,7 @@ object Assistant {
                         main.post { listeners.forEach { it.onResult(null, "", false, null) } }
                         setPhase(Phase.IDLE)
                     } else {
-                        finish(Reply.NotUnderstood, decision.lang, false, decision.transcript, null, null)
+                        finish(Reply.NotUnderstood, decision.lang, false, decision.transcript, diagnosis, null)
                     }
                     gemma.prepareNext()
                     return@execute
@@ -179,7 +194,7 @@ object Assistant {
             val actMs = SystemClock.elapsedRealtime() - actStart
             if (outcome.ok && command !is Command.Stop) lastCommand = command
 
-            val timing = if (!prefs.showTimings) null else {
+            val timing = if (diagnosis != null) diagnosis else if (!prefs.showTimings) null else {
                 fun s(ms: Long?) = if (ms == null) "–" else "%.1f s".format(ms / 1000f)
                 val clip = pcm.size * 1000L / SpeechCapture.SAMPLE_RATE
                 val total = SystemClock.elapsedRealtime() - heardAt

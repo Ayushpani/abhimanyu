@@ -70,8 +70,10 @@ class GemmaEngine(private val context: Context) {
         val mtpSupported = runCatching {
             ModelInfo.from(modelFile.absolutePath).use { (it as? ModelInfo.Llm)?.hasSpeculativeDecodingSupport() == true }
         }.getOrDefault(false)
+        // Off unless turned on in Preferences: it is new and may not work with audio input.
+        val wantMtp = Prefs(context).fastDecoding
         val attempts = buildList {
-            if (mtpSupported) add(Triple("GPU", true) { Backend.GPU() })
+            if (mtpSupported && wantMtp) add(Triple("GPU", true) { Backend.GPU() })
             add(Triple("GPU", false) { Backend.GPU() })
             add(Triple("CPU", false) { Backend.CPU() })
         }
@@ -156,20 +158,48 @@ class GemmaEngine(private val context: Context) {
      */
     @Synchronized
     fun understand(wav: ByteArray): Answer {
-        val conversation = warm ?: newConversation()
-        warm = null
-        try {
-            val contents = Contents.of(Content.AudioBytes(wav), Content.Text(GemmaProtocol.USER_PROMPT))
-            return try {
-                stream(conversation, contents, if (useResponseFormat) ResponseFormat.json(GemmaProtocol.SCHEMA) else null)
-            } catch (e: IllegalArgumentException) {
-                // Constrained decoding unavailable: rely on the prompt, the parser still validates.
-                useResponseFormat = false
-                stream(conversation, contents, null)
-            }
-        } finally {
-            runCatching { conversation.close() }
+        val contents = Contents.of(Content.AudioBytes(wav), Content.Text(GemmaProtocol.USER_PROMPT))
+        // Try the fastest way first, then simpler ones. Each attempt gets a fresh conversation,
+        // and whatever failed is remembered so the next command skips it straight away.
+        val ladder = buildList {
+            if (useStreaming && useResponseFormat) add("stream+schema")
+            if (useResponseFormat) add("schema")
+            add("plain")
         }
+        var last: Throwable? = null
+        for (way in ladder) {
+            val conversation = (if (way == ladder.first()) warm else null) ?: runCatching { newConversation() }.getOrNull()
+            if (way == ladder.first()) warm = null
+            if (conversation == null) continue
+            try {
+                val format = if (way == "plain") null else ResponseFormat.json(GemmaProtocol.SCHEMA)
+                val answer = if (way == "stream+schema") stream(conversation, contents, format) else once(conversation, contents, format)
+                lastError = null
+                return answer
+            } catch (t: Throwable) {
+                last = t
+                lastError = "$way: ${t.message ?: t.javaClass.simpleName}"
+                when (way) {
+                    "stream+schema" -> useStreaming = false
+                    "schema" -> useResponseFormat = false
+                }
+            } finally {
+                runCatching { conversation.close() }
+            }
+        }
+        throw last ?: IllegalStateException("Gemma gave no answer")
+    }
+
+    /** The last thing that went wrong inside Gemma, shown on screen to diagnose problems. */
+    @Volatile var lastError: String? = null
+        private set
+    private var useStreaming = true
+
+    private fun once(conversation: Conversation, contents: Contents, format: ResponseFormat?): Answer {
+        val start = SystemClock.elapsedRealtime()
+        val reply = if (format != null) conversation.sendMessage(contents, responseFormat = format) else conversation.sendMessage(contents)
+        val text = reply.contents.contents.filterIsInstance<Content.Text>().joinToString("") { it.text }
+        return Answer(text, SystemClock.elapsedRealtime() - start, 0, 1)
     }
 
     private fun stream(conversation: Conversation, contents: Contents, format: ResponseFormat?): Answer {
@@ -205,6 +235,9 @@ class GemmaEngine(private val context: Context) {
         warm = null
         runCatching { engine?.close() }
         engine = null
+        useStreaming = true
+        useResponseFormat = true
+        if (isInstalled()) status = Status.LOADING
     }
 
     // ---------------- import ----------------

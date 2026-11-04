@@ -96,6 +96,8 @@ class MainActivity : Activity(), Assistant.Listener {
         super.onResume()
         Assistant.activityVisible = true
         Assistant.listeners += this
+        main.removeCallbacks(refresher)
+        main.postDelayed(refresher, 2000)
         renderSetup()
         // Speech voices load asynchronously; refresh once more shortly after.
         main.postDelayed({ renderSetup() }, 1500)
@@ -104,6 +106,7 @@ class MainActivity : Activity(), Assistant.Listener {
     override fun onPause() {
         Assistant.activityVisible = false
         Assistant.listeners -= this
+        main.removeCallbacks(refresher)
         super.onPause()
     }
 
@@ -293,8 +296,10 @@ class MainActivity : Activity(), Assistant.Listener {
             main.postDelayed({ renderSetup() }, 600)
         }
         val wakeReady = ListenService.running && ListenService.wakeStatus.startsWith("Listening")
+        val ear = ListenService.earHeard
         row(
-            "Wake word ear", if (ListenService.running) ListenService.wakeStatus else
+            "Wake word ear", if (ListenService.running) ListenService.wakeStatus +
+                (if (wakeReady) "\nLast heard: " + ear.ifBlank { "nothing yet. Say “Abhimanyu”." } else "") else
                 "Uses a small Vosk speech model (Hindi preferred, 40 MB) only to catch the word “Abhimanyu”; Gemma does the rest.",
             wakeReady, if (models.isInstalled(ModelStore.Kind.HINDI)) "Replace" else "Import",
         ) { pickModel(ModelStore.Kind.HINDI) }
@@ -326,6 +331,11 @@ class MainActivity : Activity(), Assistant.Listener {
             }
         }
 
+        Assistant.lastDiagnosis?.let { d ->
+            header("Last problem")
+            hint(d)
+        }
+
         header("Preferences")
         val langLabel = when (prefs.replyLanguage) {
             ReplyLanguagePref.MATCH -> "Match the language I speak"
@@ -336,7 +346,20 @@ class MainActivity : Activity(), Assistant.Listener {
             prefs.replyLanguage = ReplyLanguagePref.entries[(prefs.replyLanguage.ordinal + 1) % ReplyLanguagePref.entries.size]
             renderSetup()
         }
+        row("Reply voice", voiceLabel(), null, "Change") { pickVoice() }
         toggle("Captions", "Show what I heard and replied", prefs.captions) { prefs.captions = it }
+        toggle(
+            "Fast decoding (experimental)",
+            "Gemma 4 multi-token prediction. Turn off if commands stop being understood.",
+            prefs.fastDecoding,
+        ) {
+            prefs.fastDecoding = it
+            status.text = "Reloading Gemma…"
+            Assistant.background {
+                Assistant.gemma.close()
+                Assistant.loadModels()
+            }
+        }
         toggle("Show timings", "Under the mic: how long each step took", prefs.showTimings) {
             prefs.showTimings = it
             if (!it) footer.text = "fully offline"
@@ -446,6 +469,58 @@ class MainActivity : Activity(), Assistant.Listener {
         })
     }
 
+
+    private fun voiceLabel(): String {
+        fun one(lang: String, picked: String?): String {
+            val sp = Assistant.speaker
+            val v = sp.offlineVoices(lang).firstOrNull { it.name == picked }
+            return if (v == null) "automatic (male if available)" else voiceName(v, lang)
+        }
+        return "English: " + one("en", prefs.voiceEnglish) + "\nHindi: " + one("hi", prefs.voiceHindi)
+    }
+
+    private fun voiceName(v: android.speech.tts.Voice, lang: String): String {
+        val voices = Assistant.speaker.offlineVoices(lang)
+        val n = voices.indexOf(v) + 1
+        val g = Assistant.speaker.genderOf(v)
+        return "Voice $n" + (if (g != null) " · $g" else "")
+    }
+
+    /** Pick the English, then the Hindi voice; each choice plays a sample. */
+    private fun pickVoice() {
+        val langs = listOf("en" to "English (India) voice", "hi" to "Hindi voice")
+        fun ask(i: Int) {
+            if (i >= langs.size) { renderSetup(); return }
+            val (lang, title) = langs[i]
+            val voices = Assistant.speaker.offlineVoices(lang)
+            if (voices.isEmpty()) {
+                AlertDialog.Builder(this).setTitle(title)
+                    .setMessage("No offline voice installed for this language. Install it under Voices for replies → Open.")
+                    .setPositiveButton("OK") { _, _ -> ask(i + 1) }.show()
+                return
+            }
+            val labels = (listOf("Automatic (male if available)") + voices.map { voiceName(it, lang) }).toTypedArray()
+            val current = if (lang == "hi") prefs.voiceHindi else prefs.voiceEnglish
+            val checked = voices.indexOfFirst { it.name == current } + 1
+            AlertDialog.Builder(this).setTitle(title)
+                .setSingleChoiceItems(labels, checked) { _, which ->
+                    val name = if (which == 0) null else voices[which - 1].name
+                    if (lang == "hi") prefs.voiceHindi = name else prefs.voiceEnglish = name
+                    val v = if (which == 0) voices.firstOrNull { Assistant.speaker.genderOf(it) == "male" } ?: voices.first() else voices[which - 1]
+                    Assistant.speaker.sample(v, hindi = lang == "hi")
+                }
+                .setPositiveButton(if (i + 1 < langs.size) "Next" else "Done") { _, _ -> ask(i + 1) }
+                .show()
+        }
+        ask(0)
+    }
+
+    private val refresher = object : Runnable {
+        override fun run() {
+            if (Assistant.activityVisible && Assistant.phase == Assistant.Phase.IDLE && ListenService.running) renderSetup()
+            main.postDelayed(this, 2000)
+        }
+    }
 
     private fun openTtsSettings() {
         val intent = Intent("com.android.settings.TTS_SETTINGS")

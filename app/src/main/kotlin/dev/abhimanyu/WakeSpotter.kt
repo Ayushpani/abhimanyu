@@ -24,7 +24,12 @@ class WakeSpotter(private val models: ModelStore) {
     val ready: Boolean
 
     private val recognizer: Recognizer?
-    private val target: String
+    /** Phrases (spaces removed) that count as the wake word for the chosen model. */
+    private val targets: List<String>
+
+    /** What the ear last heard, for the setup screen's live check. */
+    @Volatile var lastHeard: String = ""
+        private set
 
     private val preRoll = ArrayDeque<ShortArray>()
     private var gateOpen = false
@@ -33,36 +38,40 @@ class WakeSpotter(private val models: ModelStore) {
     private var lastDetect = 0L
 
     init {
-        // Prefer the Hindi model: "अभिमन्यु" is a common name there. Fall back to English.
+        // Ways the name can appear in each model's vocabulary, best first. Small models often
+        // lack the full name, so split spellings that sound the same are tried too.
         val choices = listOf(
-            Triple(ModelStore.Kind.HINDI, "अभिमन्यु", "हे"),
-            Triple(ModelStore.Kind.ENGLISH, "abhimanyu", "hey"),
+            ModelStore.Kind.HINDI to listOf("अभिमन्यु", "अभिमन्यू", "अभि मन्यु", "अभी मन्यु", "अभि मन्यू", "अभी मनु"),
+            ModelStore.Kind.ENGLISH to listOf("abhimanyu", "abhi manyu", "abhi man you", "abby man you", "abi man you"),
         )
         var rec: Recognizer? = null
-        var word = ""
-        var why = "Import a backup speech model (Hindi preferred) to enable the wake word."
-        for ((kind, name, hey) in choices) {
+        var chosen = emptyList<String>()
+        var why = "Import the small Hindi (or Indian English) Vosk model to enable the wake word."
+        val missing = mutableListOf<String>()
+        for ((kind, spellings) in choices) {
             val model = models.model(kind) ?: continue
-            if (!models.hasWord(kind, name)) {
-                why = "The ${kind.label} speech model doesn't know the word \"$name\"."
-                continue
-            }
+            val known = spellings.filter { p -> p.split(' ').all { models.hasWord(kind, it) } }
+            if (known.isEmpty()) { missing += kind.label; continue }
+            val hey = if (kind == ModelStore.Kind.HINDI) "हे" else "hey"
             val phrases = buildList {
-                if (models.hasWord(kind, hey)) add("$hey $name")
-                add(name)
+                if (models.hasWord(kind, hey)) known.forEach { add("$hey $it") }
+                addAll(known)
                 add("[unk]")
             }
             rec = runCatching {
                 Recognizer(model, SpeechCapture.SAMPLE_RATE.toFloat(), phrases.joinToString(",", "[", "]") { "\"$it\"" })
             }.getOrNull()
             if (rec != null) {
-                word = name
-                why = "Listening for \"Abhimanyu\" with the ${kind.label} model."
+                chosen = known.map { it.replace(" ", "") }
+                why = "Listening for \"${known.first()}\" with the ${kind.label} model."
                 break
             }
         }
+        if (rec == null && missing.isNotEmpty()) {
+            why = "The ${missing.joinToString(" and ")} model doesn't know any spelling of \"Abhimanyu\". Try importing the other one."
+        }
         recognizer = rec
-        target = word
+        targets = chosen
         ready = rec != null
         status = why
     }
@@ -93,7 +102,9 @@ class WakeSpotter(private val models: ModelStore) {
 
         val final = rec.acceptWaveForm(frame, n)
         val text = if (final) JSONObject(rec.result).optString("text") else JSONObject(rec.partialResult).optString("partial")
-        if (target.isNotEmpty() && text.contains(target)) {
+        if (text.isNotBlank()) lastHeard = text
+        val joined = text.replace(" ", "")
+        if (targets.any { joined.contains(it) }) {
             rec.reset()
             gateOpen = false
             val now = System.currentTimeMillis()

@@ -43,6 +43,9 @@ class ListenService : Service() {
             private set
         @Volatile var wakeStatus: String = "Not started"
             private set
+        @Volatile private var currentSpotter: WakeSpotter? = null
+        /** What the wake word ear last heard (for the live check on the setup screen). */
+        val earHeard: String get() = currentSpotter?.lastHeard.orEmpty()
 
         @Volatile private var listenNow = false
         @Volatile private var stopCapture = false
@@ -170,6 +173,7 @@ class ListenService : Service() {
             if (spotter == null || modelsKey != spotterBuiltForModels) {
                 spotter?.close()
                 spotter = WakeSpotter(Assistant.models)
+                currentSpotter = spotter
                 spotterBuiltForModels = modelsKey
                 wakeStatus = spotter.status
                 updateNotification()
