@@ -67,4 +67,6 @@ dependencies {
     implementation("com.google.ai.edge.litertlm:litertlm-android:0.18.1")
     // Optional backup speech-to-text, used only if Gemma isn't loaded.
     implementation("com.alphacephei:vosk-android:0.3.75")
+    // Vosk's native bridge; declared directly so the wake-word lexicon check can use it.
+    implementation("net.java.dev.jna:jna:5.18.1@aar")
 }

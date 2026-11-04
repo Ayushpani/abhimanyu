@@ -2,6 +2,9 @@ package dev.abhimanyu
 
 import android.content.Context
 import android.net.Uri
+import com.sun.jna.Library
+import com.sun.jna.Native
+import com.sun.jna.Pointer
 import org.vosk.LibVosk
 import org.vosk.LogLevel
 import org.vosk.Model
@@ -39,6 +42,23 @@ class ModelStore(private val context: Context) {
                 runCatching { Model(dir(kind).absolutePath) }.onSuccess { loaded[kind] = it }
             }
         }
+    }
+
+    /** True if the loaded [kind] model's vocabulary contains [word] (needed for the wake word). */
+    fun hasWord(kind: Kind, word: String): Boolean {
+        val m = model(kind) ?: return false
+        val lib = lexicon ?: return false
+        return runCatching { lib.vosk_model_find_word(m.pointer, word) >= 0 }.getOrDefault(false)
+    }
+
+    /** Direct access to vosk_model_find_word, which the Java binding doesn't expose. */
+    @Suppress("FunctionName")
+    private interface VoskLexicon : Library {
+        fun vosk_model_find_word(model: Pointer, word: String): Int
+    }
+
+    private val lexicon: VoskLexicon? by lazy {
+        runCatching { Native.load("vosk", VoskLexicon::class.java) }.getOrNull()
     }
 
     data class ImportResult(val ok: Boolean, val sha256: String?, val message: String)

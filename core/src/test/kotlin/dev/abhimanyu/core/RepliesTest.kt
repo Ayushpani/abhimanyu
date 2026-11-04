@@ -45,7 +45,7 @@ class RepliesTest {
             Reply.NeedsPermission(Reply.Permission.DND_ACCESS), Reply.Failed, Reply.ModelsMissing,
             Reply.TaskStarting("Clock in"), Reply.TaskDone("Clock in", true), Reply.TaskDone("Clock in", false),
             Reply.TaskUnknown("gym"), Reply.TaskDue("Clock in"), Reply.TasksScheduled(listOf("Clock in at 10 AM, Monday to Friday")),
-            Reply.NeedsControlMode, Reply.Cancelled,
+            Reply.NeedsControlMode, Reply.Cancelled, Reply.Locked,
         ) + Reply.TaskFailure.entries.map { Reply.TaskFailed("Clock in", it, "Punch In") }
         for (r in replies) for (l in Lang.entries) {
             val u = ReplyRenderer.render(r, l)

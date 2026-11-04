@@ -26,6 +26,7 @@ sealed interface Reply {
     data object NothingToRepeat : Reply
     data object CantDoYet : Reply
     data object LockNeedsControlMode : Reply
+    data object Locked : Reply
     data class NeedsPermission(val permission: Permission) : Reply
     data object Failed : Reply
     data object ModelsMissing : Reply
@@ -123,6 +124,7 @@ object ReplyRenderer {
         Reply.NothingToRepeat -> "There's nothing to repeat yet."
         Reply.CantDoYet -> "I can't do that yet."
         Reply.LockNeedsControlMode -> "I can't lock the phone until control mode is turned on."
+        Reply.Locked -> "Phone locked."
         is Reply.NeedsPermission -> when (r.permission) {
             Reply.Permission.MICROPHONE -> "I need microphone permission."
             Reply.Permission.DND_ACCESS -> "I need Do Not Disturb access. Opening settings."
@@ -198,6 +200,7 @@ object ReplyRenderer {
         Reply.NothingToRepeat -> "दोहराने के लिए अभी कुछ नहीं है।" to "Dohraane ke liye abhi kuch nahi hai."
         Reply.CantDoYet -> "यह मैं अभी नहीं कर सकता।" to "Yeh main abhi nahi kar sakta."
         Reply.LockNeedsControlMode -> "कंट्रोल मोड चालू होने तक मैं फ़ोन लॉक नहीं कर सकता।" to "Control mode chalu hone tak main phone lock nahi kar sakta."
+        Reply.Locked -> "फ़ोन लॉक कर दिया।" to "Phone lock kar diya."
         is Reply.NeedsPermission -> when (r.permission) {
             Reply.Permission.MICROPHONE -> "मुझे माइक्रोफ़ोन की अनुमति चाहिए।" to "Mujhe microphone ki anumati chahiye."
             Reply.Permission.DND_ACCESS -> "मुझे डू नॉट डिस्टर्ब की अनुमति चाहिए। सेटिंग खोल रहा हूँ।" to "Mujhe Do Not Disturb ki anumati chahiye. Settings khol raha hoon."
@@ -277,6 +280,7 @@ object ReplyRenderer {
         Reply.NothingToRepeat -> "Repeat करने के लिए अभी कुछ नहीं है।" to "Repeat karne ke liye abhi kuch nahi hai."
         Reply.CantDoYet -> "यह मैं अभी नहीं कर सकता।" to "Yeh main abhi nahi kar sakta."
         Reply.LockNeedsControlMode -> "Control mode on होने तक phone lock नहीं कर सकता।" to "Control mode on hone tak phone lock nahi kar sakta."
+        Reply.Locked -> "Phone lock कर दिया।" to "Phone lock kar diya."
         is Reply.NeedsPermission -> when (r.permission) {
             Reply.Permission.MICROPHONE -> "मुझे microphone permission चाहिए।" to "Mujhe microphone permission chahiye."
             Reply.Permission.DND_ACCESS -> "मुझे DND access चाहिए। Settings खोल रहा हूँ।" to "Mujhe DND access chahiye. Settings khol raha hoon."

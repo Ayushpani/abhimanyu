@@ -76,7 +76,8 @@ class InkView @JvmOverloads constructor(
     fun setLevel(value: Float) { level = value.coerceIn(0f, 1f) }
 
     private fun center(): Pair<Float, Float> {
-        val a = anchor ?: return width / 2f to height * 0.8f
+        // Over other apps there is no mic button: rise from just above the bottom edge.
+        val a = anchor ?: return width / 2f to (height - 110 * density)
         val me = IntArray(2).also { getLocationInWindow(it) }
         val pos = IntArray(2).also { a.getLocationInWindow(it) }
         return (pos[0] - me[0] + a.width / 2f) to (pos[1] - me[1] + a.height / 2f)

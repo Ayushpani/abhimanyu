@@ -25,6 +25,11 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("show_timings", true)
         set(v) = sp.edit().putBoolean("show_timings", v).apply()
 
+    /** Keep listening for the wake word in the background, even with the app closed. */
+    var alwaysListening: Boolean
+        get() = sp.getBoolean("always_listening", false)
+        set(v) = sp.edit().putBoolean("always_listening", v).apply()
+
     var dndOffAt: Long
         get() = sp.getLong("dnd_off_at", 0L)
         set(v) = sp.edit().putLong("dnd_off_at", v).apply()

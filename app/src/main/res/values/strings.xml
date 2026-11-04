@@ -8,6 +8,6 @@
     <string name="setup_title">Setup</string>
     <string name="import_english">Import English model</string>
     <string name="import_hindi">Import Hindi model</string>
-    <string name="accessibility_description">Control mode for Abhimanyu. Lets it read button labels and tap them, only to replay tasks you taught it with "watch me" (for example clocking in). It never reads messages or notifications aloud, never types passwords, and refuses payment, banking and photo apps.</string>
+    <string name="accessibility_description">Control mode for Abhimanyu. It draws the ink animation over other apps while Abhimanyu is listening, locks the phone when you ask, and opens the Clock app for alarms and timers while Abhimanyu is closed. Later it will tap buttons only for tasks you teach it (for example clocking in). It never reads messages or notifications aloud, never types passwords, and refuses payment, banking and photo apps.</string>
     <string name="accessibility_label">Abhimanyu control mode</string>
 </resources>

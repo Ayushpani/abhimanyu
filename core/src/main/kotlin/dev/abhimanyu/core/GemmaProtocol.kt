@@ -92,7 +92,8 @@ object GemmaProtocol {
     """.trimIndent()
 
     /** The instruction sent alongside each audio clip. */
-    const val USER_PROMPT = "Route this voice command. Reply with the JSON object only."
+    const val USER_PROMPT = "Route this voice command. If it starts with the wake phrase " +
+        "\"Hey Abhimanyu\" (or the end of it), ignore that part. Reply with the JSON object only."
 
     data class Result(val transcript: String, val lang: Lang, val tool: String, val command: Command?)
 

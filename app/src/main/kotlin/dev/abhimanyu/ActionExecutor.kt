@@ -61,7 +61,11 @@ class ActionExecutor(private val context: Context, private val prefs: Prefs) {
                 is Command.Captions -> { prefs.captions = command.on; Outcome(Reply.CaptionsSet(command.on), true) }
                 Command.Help -> Outcome(Reply.Help, true)
                 Command.Stop -> Outcome(Reply.Stopped, true)
-                Command.LockPhone -> Outcome(Reply.LockNeedsControlMode, false)
+                Command.LockPhone -> {
+                    val control = ControlService.instance
+                    if (control != null && control.lockScreen()) Outcome(Reply.Locked, true)
+                    else Outcome(Reply.LockNeedsControlMode, false)
+                }
                 is Command.Unsupported -> Outcome(Reply.CantDoYet, false)
                 // Taught tasks need fingerprint and control mode; the activity runs them, not Layer 1.
                 is Command.RunTask, is Command.ScheduleTasks -> Outcome(Reply.CantDoYet, false)
@@ -168,11 +172,21 @@ class ActionExecutor(private val context: Context, private val prefs: Prefs) {
 
     // ---------- alarms and timers (Clock app intents, skipping its UI) ----------
 
-    private fun launch(intent: Intent): Boolean = try {
-        context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-        true
-    } catch (e: ActivityNotFoundException) {
-        false
+    /**
+     * Opens another app's screen (the Clock app for alarms and timers). With the app closed,
+     * Android only allows this through control mode's accessibility service.
+     */
+    private fun launch(intent: Intent): Boolean {
+        val control = ControlService.instance
+        if (!Assistant.activityVisible && control != null) return control.launch(intent)
+        return try {
+            context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            true
+        } catch (e: ActivityNotFoundException) {
+            false
+        } catch (e: Exception) {
+            false
+        }
     }
 
     private fun setAlarm(c: Command.SetAlarm): Outcome {
