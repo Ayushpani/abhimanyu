@@ -15,8 +15,9 @@ import kotlin.math.min
 import kotlin.math.sqrt
 
 /**
- * Push-to-talk capture. Records 16 kHz mono audio, feeds the same frames to the English and
- * Hindi recognizers, reports loudness for the glow, and stops on its own when you stop speaking.
+ * Push-to-talk capture. Records 16 kHz mono audio for Gemma, reports loudness for the glow, and
+ * stops on its own when you stop speaking. If the optional Vosk backup models are installed, the
+ * same frames also go to them, so there is a transcript even if Gemma is unloaded.
  *
  * Audio only ever lives in memory and is discarded after recognition.
  */
@@ -27,11 +28,14 @@ class SpeechCapture(private val models: ModelStore) {
 
     fun requestStop() = stopRequested.set(true)
 
+    /** The recorded clip, plus backup transcripts if Vosk is installed. */
+    class Result(val pcm: ShortArray, val transcripts: List<Transcript>)
+
     /** Blocks until done. Run on a background thread. */
     @SuppressLint("MissingPermission") // checked by the caller before starting
-    fun capture(onLevel: (Float) -> Unit): List<Transcript> {
+    fun capture(useVosk: Boolean, onLevel: (Float) -> Unit): Result {
         stopRequested.set(false)
-        val recognizers = buildList {
+        val recognizers = if (!useVosk) emptyList() else buildList {
             models.model(ModelStore.Kind.ENGLISH)?.let { add(Triple("en", it, Vocabulary.english())) }
             models.model(ModelStore.Kind.HINDI)?.let { add(Triple("hi", it, Vocabulary.hindi())) }
         }.map { (name, model, words) ->
@@ -40,8 +44,6 @@ class SpeechCapture(private val models: ModelStore) {
             rec.setWords(true)
             Pending(name, rec)
         }
-        if (recognizers.isEmpty()) return emptyList()
-
         val minBuf = AudioRecord.getMinBufferSize(SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
         val record = AudioRecord(
             MediaRecorder.AudioSource.VOICE_RECOGNITION,
@@ -49,6 +51,8 @@ class SpeechCapture(private val models: ModelStore) {
             max(minBuf, FRAME * 4 * 2),
         )
         val frame = ShortArray(FRAME)
+        val pcm = ShortArray(SAMPLE_RATE * MAX_MS / 1000)
+        var pcmLen = 0
         try {
             record.startRecording()
             var elapsedMs = 0
@@ -59,6 +63,8 @@ class SpeechCapture(private val models: ModelStore) {
                 val n = record.read(frame, 0, frame.size)
                 if (n <= 0) break
                 elapsedMs += n * 1000 / SAMPLE_RATE
+                val room = minOf(n, pcm.size - pcmLen)
+                if (room > 0) { System.arraycopy(frame, 0, pcm, pcmLen, room); pcmLen += room }
 
                 val db = dbfs(frame, n)
                 onLevel(((db + 55.0) / 40.0).coerceIn(0.0, 1.0).toFloat())
@@ -79,11 +85,12 @@ class SpeechCapture(private val models: ModelStore) {
             record.release()
             onLevel(0f)
         }
-        return recognizers.map { p ->
+        val transcripts = recognizers.map { p ->
             p.collect(p.rec.finalResult)
             p.rec.close()
             Transcript(p.words.joinToString(" "), if (p.confs.isEmpty()) 0f else p.confs.average().toFloat(), p.name)
         }
+        return Result(pcm.copyOf(pcmLen), transcripts)
     }
 
     private class Pending(val name: String, val rec: Recognizer) {

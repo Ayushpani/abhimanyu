@@ -21,6 +21,7 @@ import android.widget.LinearLayout
 import android.widget.Switch
 import android.widget.TextView
 import dev.abhimanyu.core.Command
+import dev.abhimanyu.core.Parsed
 import dev.abhimanyu.core.Lang
 import dev.abhimanyu.core.Reply
 import dev.abhimanyu.core.ReplyLanguagePref
@@ -30,8 +31,9 @@ import dev.abhimanyu.core.Understanding
 import java.util.concurrent.Executors
 
 /**
- * Phase 1: tap the mic, speak a Tier 0 command in English, Hindi or Hinglish, and it runs
- * through direct Android APIs, with a spoken reply in your language, tones, and the edge glow.
+ * Tap the mic and speak a Tier 0 command in English, Hindi or Hinglish. Gemma 4 E2B hears the
+ * audio and picks a command (Vosk + rules are the optional backup); it runs through direct
+ * Android APIs, with a spoken reply in your language, tones, and the edge glow.
  */
 class MainActivity : Activity() {
 
@@ -39,6 +41,7 @@ class MainActivity : Activity() {
 
     private lateinit var prefs: Prefs
     private lateinit var models: ModelStore
+    private lateinit var gemma: GemmaEngine
     private lateinit var capture: SpeechCapture
     private lateinit var speaker: Speaker
     private lateinit var tones: Tones
@@ -55,6 +58,7 @@ class MainActivity : Activity() {
     private var lastCommand: Command? = null
     private var modelsLoading = false
     private var pendingImport: ModelStore.Kind? = null
+    private var importing = false
     private val hideCaption = Runnable { caption.visibility = View.INVISIBLE }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -64,6 +68,7 @@ class MainActivity : Activity() {
 
         prefs = Prefs(this)
         models = ModelStore(this)
+        gemma = GemmaEngine(this)
         capture = SpeechCapture(models)
         speaker = Speaker(this)
         tones = Tones(this)
@@ -97,17 +102,24 @@ class MainActivity : Activity() {
         capture.requestStop()
         speaker.shutdown()
         worker.shutdownNow()
+        Thread { gemma.close() }.start() // may wait for an in-flight command; keep it off the main thread
         super.onDestroy()
     }
 
     private fun loadModels() {
         if (modelsLoading) return
         modelsLoading = true
+        renderSetup()
         worker.execute {
-            models.loadAll()
+            gemma.load()                // main brain
+            main.post { renderSetup() }
+            models.loadAll()            // optional Vosk backup
             main.post { modelsLoading = false; renderSetup() }
         }
     }
+
+    private fun gemmaReady() = gemma.status == GemmaEngine.Status.READY
+    private fun voskReady() = ModelStore.Kind.entries.any { models.model(it) != null }
 
     // ---------------- the voice loop ----------------
 
@@ -122,10 +134,11 @@ class MainActivity : Activity() {
             requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), REQ_MIC)
             return
         }
-        val installed = ModelStore.Kind.entries.any { models.isInstalled(it) }
-        if (!installed) { respond(Reply.ModelsMissing, Lang.EN, ok = false, heard = null); return }
-        if (ModelStore.Kind.entries.none { models.model(it) != null }) {
-            status.text = "Loading speech models…"
+        if (importing) { status.text = "Wait for the import to finish…"; return }
+        if (!gemmaReady() && !voskReady()) {
+            val anyInstalled = gemma.isInstalled() || ModelStore.Kind.entries.any { models.isInstalled(it) }
+            if (!anyInstalled) { respond(Reply.ModelsMissing, Lang.EN, ok = false, heard = null); return }
+            status.text = if (gemma.status == GemmaEngine.Status.FAILED) gemma.detail else "Gemma is still loading…"
             loadModels()
             return
         }
@@ -142,27 +155,51 @@ class MainActivity : Activity() {
         capture.restrictToCommands = prefs.restrictVocabulary
         worker.execute {
             Thread.sleep(150) // let the listening tone finish so it isn't recorded
-            val transcripts = try {
-                capture.capture { level -> glow.setLevel(level) }
+            val useGemma = gemmaReady()
+            val clip = try {
+                capture.capture(useVosk = voskReady()) { level -> glow.setLevel(level) }
             } catch (e: Exception) {
-                emptyList()
+                SpeechCapture.Result(ShortArray(0), emptyList())
             }
-            main.post { onHeard(transcripts) }
+            main.post { onHeard(clip, useGemma) }
         }
     }
 
-    private fun onHeard(transcripts: List<Transcript>) {
+    private fun onHeard(clip: SpeechCapture.Result, useGemma: Boolean) {
         if (state != State.LISTENING) return
         state = State.THINKING
         status.setText(R.string.thinking)
         tones.heard()
         glow.setMode(GlowView.Mode.THINKING)
 
-        val result = Understanding.choose(transcripts)
-        val parsed = result.parsed
-        if (parsed == null) {
-            respond(Reply.NotUnderstood, Understanding.guessLang(result.best), ok = false, heard = result.best?.text)
-            return
+        worker.execute {
+            // Main brain: Gemma hears the clip itself. Backup: Vosk transcripts + rules.
+            val decision = (if (useGemma && clip.pcm.size > SpeechCapture.SAMPLE_RATE / 4) {
+                runCatching { gemma.understand(GemmaEngine.wav(clip.pcm)) }.getOrNull()
+                    ?.let { Understanding.fromGemma(it) }
+            } else null) ?: fromBackup(clip.transcripts)
+            main.post { onDecision(decision) }
+            gemma.prepareNext()
+        }
+    }
+
+    private fun fromBackup(transcripts: List<Transcript>): Understanding.Decision {
+        val r = Understanding.choose(transcripts)
+        return r.parsed?.let { Understanding.Decision.Run(it) }
+            ?: Understanding.Decision.NotHeard(r.best?.text.orEmpty(), Understanding.guessLang(r.best))
+    }
+
+    private fun onDecision(decision: Understanding.Decision) {
+        val parsed: Parsed = when (decision) {
+            is Understanding.Decision.Run -> decision.parsed
+            is Understanding.Decision.OutOfScope -> {
+                respond(Reply.CantDoYet, decision.lang, ok = false, heard = decision.transcript)
+                return
+            }
+            is Understanding.Decision.NotHeard -> {
+                respond(Reply.NotUnderstood, decision.lang, ok = false, heard = decision.transcript)
+                return
+            }
         }
 
         var command = parsed.command
@@ -225,17 +262,19 @@ class MainActivity : Activity() {
         row("Microphone", if (mic) "Allowed" else "Needed to hear you", mic, "Allow") {
             requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), REQ_MIC)
         }
-        for (kind in ModelStore.Kind.entries) {
-            val installed = models.isInstalled(kind)
-            val detail = when {
-                !installed -> "Download the small ${kind.label} Vosk model zip in Chrome, then import it"
-                models.model(kind) == null -> if (modelsLoading) "Loading…" else "Installed, not loaded"
-                else -> "Installed"
-            }
-            row("${kind.label} speech model", detail, installed && models.model(kind) != null, if (installed) "Replace" else "Import") {
-                pickModel(kind)
-            }
+        val gemmaDetail = when (gemma.status) {
+            GemmaEngine.Status.NOT_INSTALLED ->
+                "Download ${GemmaEngine.MODEL_FILE_NAME} (2.6 GB) in Chrome from Hugging Face " +
+                    "(litert-community/gemma-4-E2B-it-litert-lm), then import it. " +
+                    "Edge Gallery's copy is private to Edge Gallery, so it can't be reused."
+            GemmaEngine.Status.LOADING -> gemma.detail.ifBlank { "Loading…" }
+            GemmaEngine.Status.READY -> gemma.detail
+            GemmaEngine.Status.FAILED -> gemma.detail
         }
+        row(
+            "Gemma 4 E2B (main brain)", gemmaDetail, gemmaReady(),
+            if (gemma.isInstalled()) "Replace" else "Import",
+        ) { pickGemma() }
         val en = speaker.hasEnglishVoice()
         val hi = speaker.hasHindiVoice()
         row(
@@ -252,6 +291,20 @@ class MainActivity : Activity() {
             startActivity(Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS, Uri.parse("package:$packageName")))
         }
 
+        header("Backup speech (optional)")
+        hint("Only used if Gemma isn't loaded. Small Vosk zips, about 40 MB each.")
+        for (kind in ModelStore.Kind.entries) {
+            val installed = models.isInstalled(kind)
+            val detail = when {
+                !installed -> "Not installed"
+                models.model(kind) == null -> if (modelsLoading) "Loading…" else "Installed, not loaded"
+                else -> "Installed"
+            }
+            row("${kind.label} (Vosk)", detail, installed && models.model(kind) != null, if (installed) "Replace" else "Import") {
+                pickModel(kind)
+            }
+        }
+
         header("Preferences")
         val langLabel = when (prefs.replyLanguage) {
             ReplyLanguagePref.MATCH -> "Match the language I speak"
@@ -263,7 +316,7 @@ class MainActivity : Activity() {
             renderSetup()
         }
         toggle("Captions", "Show what I heard and replied", prefs.captions) { prefs.captions = it }
-        toggle("Command words only", "Limits recognition to known commands; more accurate", prefs.restrictVocabulary) {
+        toggle("Backup: command words only", "Limits Vosk to known commands; more accurate", prefs.restrictVocabulary) {
             prefs.restrictVocabulary = it
         }
 
@@ -349,6 +402,37 @@ class MainActivity : Activity() {
 
     // ---------------- model import ----------------
 
+    private fun pickGemma() {
+        if (importing) return
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "*/*"
+        }
+        @Suppress("DEPRECATION")
+        startActivityForResult(intent, REQ_IMPORT_GEMMA)
+    }
+
+    private fun importGemma(uri: Uri) {
+        importing = true
+        status.text = "Importing Gemma 4… 0%"
+        renderSetup()
+        worker.execute {
+            val result = gemma.import(uri) { pct -> main.post { status.text = "Importing Gemma 4… $pct%" } }
+            main.post {
+                importing = false
+                status.setText(R.string.tap_to_speak)
+                renderSetup()
+                AlertDialog.Builder(this)
+                    .setTitle(if (result.ok) "Gemma 4 installed" else "Gemma 4 not installed")
+                    .setMessage(
+                        result.message + if (result.ok) "\n\nYou can now delete the downloaded file to free 2.6 GB." else "",
+                    )
+                    .setPositiveButton("OK", null)
+                    .show()
+            }
+        }
+    }
+
     private fun pickModel(kind: ModelStore.Kind) {
         pendingImport = kind
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
@@ -364,8 +448,12 @@ class MainActivity : Activity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         @Suppress("DEPRECATION")
         super.onActivityResult(requestCode, resultCode, data)
-        val kind = pendingImport
         val uri = data?.data
+        if (requestCode == REQ_IMPORT_GEMMA) {
+            if (resultCode == RESULT_OK && uri != null) importGemma(uri)
+            return
+        }
+        val kind = pendingImport
         if (requestCode != REQ_IMPORT || resultCode != RESULT_OK || kind == null || uri == null) return
         pendingImport = null
         status.text = "Installing ${kind.label} model…"
@@ -392,5 +480,6 @@ class MainActivity : Activity() {
     companion object {
         private const val REQ_MIC = 1
         private const val REQ_IMPORT = 2
+        private const val REQ_IMPORT_GEMMA = 3
     }
 }
