@@ -78,7 +78,13 @@ class GemmaEngine(private val context: Context) {
         }
         if (engine == null) {
             status = Status.FAILED
-            detail = "Couldn't load: ${lastError?.message ?: "unknown error"}"
+            val msg = lastError?.message.orEmpty()
+            detail = if ("tensor not found" in msg.lowercase() || "compiled_model" in msg) {
+                "This model file is built for a different chip. Import $MODEL_FILE_NAME (2.59 GB), " +
+                    "not a Tensor G5/G6, NPU, Qualcomm, Intel or web file."
+            } else {
+                "Couldn't load: ${msg.ifBlank { "unknown error" }}"
+            }
             return
         }
         status = Status.READY
@@ -173,6 +179,7 @@ class GemmaEngine(private val context: Context) {
         if (!name.endsWith(".litertlm", ignoreCase = true)) {
             return ImportResult(false, "Pick the .litertlm file (for example $MODEL_FILE_NAME).")
         }
+        wrongVariant(name)?.let { return ImportResult(false, it) }
         val dir = modelFile.parentFile!!.apply { mkdirs() }
         val free = StatFs(dir.absolutePath).availableBytes
         if (size > 0 && free < size + 200L * 1024 * 1024) {
@@ -180,12 +187,15 @@ class GemmaEngine(private val context: Context) {
         }
 
         synchronized(this) {
+            val previousFailed = status == Status.FAILED
             runCatching { warm?.close() }
             warm = null
             runCatching { engine?.close() }
             engine = null
             status = Status.LOADING
             detail = "Importing…"
+            // A model that never loaded is useless; free its space before copying the new one.
+            if (previousFailed) modelFile.delete()
         }
         val tmp = File(dir, "$MODEL_FILE_NAME.part")
         try {
@@ -223,6 +233,19 @@ class GemmaEngine(private val context: Context) {
 
     companion object {
         const val MODEL_FILE_NAME = "gemma-4-E2B-it.litertlm"
+
+        /**
+         * Hugging Face also hosts chip-specific builds of Gemma 4 E2B. Those compiled for an NPU
+         * (Tensor G5/G6, Qualcomm, Intel) or for the web don't load on the Pixel 10a's Tensor G4,
+         * which runs the general build on its GPU. Returns why a file name is wrong, or null.
+         */
+        fun wrongVariant(fileName: String): String? {
+            val n = fileName.lowercase()
+            val bad = listOf("tensor_g", "_npu", "npu_", "qualcomm", "intel", "-web", "_web")
+            if (bad.none { it in n }) return null
+            return "\"$fileName\" is built for a different chip and won't run on the Pixel 10a (Tensor G4). " +
+                "Download $MODEL_FILE_NAME (2.59 GB) from the same Hugging Face page instead."
+        }
 
         /** 16 kHz mono 16-bit PCM → WAV bytes, the format LiteRT-LM's audio input expects. */
         fun wav(pcm: ShortArray, sampleRate: Int = 16000): ByteArray {
