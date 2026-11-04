@@ -25,17 +25,41 @@ jobs:
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0" > /dev/null
 
       # Same signing key on every build, so a new APK installs over the old one
-      # without uninstalling (which would wipe the imported speech models).
+      # without uninstalling (which would wipe the imported models).
+      # Most permanent: add the keystore as the ABHIMANYU_KEYSTORE_B64 repository secret
+      # (and ABHIMANYU_KEYSTORE_PASSWORD if it isn't "abhimanyu-local"). Otherwise the key is
+      # generated once and kept in the Actions cache.
       - name: Restore signing key
         uses: actions/cache@v4
         with:
-          path: ~/.android/debug.keystore
-          key: abhimanyu-debug-keystore-v1
+          path: ci-signing/abhimanyu.jks
+          key: abhimanyu-signing-key-v2
 
-      - name: Core tests (parser, tiers, reply templates)
+      - name: Prepare signing key
+        env:
+          KEYSTORE_B64: ${{ secrets.ABHIMANYU_KEYSTORE_B64 }}
+          ABHIMANYU_KEYSTORE_PASSWORD: ${{ secrets.ABHIMANYU_KEYSTORE_PASSWORD || 'abhimanyu-local' }}
+        run: |
+          mkdir -p ci-signing
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > ci-signing/abhimanyu.jks
+            echo "Using the keystore from the repository secret."
+          elif [ ! -f ci-signing/abhimanyu.jks ]; then
+            keytool -genkeypair -keystore ci-signing/abhimanyu.jks -alias abhimanyu -keyalg RSA -keysize 2048 \
+              -validity 10000 -storepass "$ABHIMANYU_KEYSTORE_PASSWORD" -keypass "$ABHIMANYU_KEYSTORE_PASSWORD" \
+              -dname "CN=Abhimanyu"
+            echo "Generated a new signing key; it is cached for later builds."
+          else
+            echo "Reusing the cached signing key."
+          fi
+          keytool -list -v -keystore ci-signing/abhimanyu.jks -storepass "$ABHIMANYU_KEYSTORE_PASSWORD" | grep -m1 "SHA256:"
+
+      - name: Core tests (parser, Gemma protocol, tasks, replies)
         run: ./gradlew -p core test --no-daemon
 
       - name: Build debug APK
+        env:
+          ABHIMANYU_KEYSTORE_PASSWORD: ${{ secrets.ABHIMANYU_KEYSTORE_PASSWORD || 'abhimanyu-local' }}
         run: ./gradlew :app:assembleDebug --no-daemon
 
       - name: Check the APK has no internet permission

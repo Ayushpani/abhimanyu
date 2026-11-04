@@ -21,6 +21,10 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("restrict_vocab", true)
         set(v) = sp.edit().putBoolean("restrict_vocab", v).apply()
 
+    var showTimings: Boolean
+        get() = sp.getBoolean("show_timings", true)
+        set(v) = sp.edit().putBoolean("show_timings", v).apply()
+
     var dndOffAt: Long
         get() = sp.getLong("dnd_off_at", 0L)
         set(v) = sp.edit().putLong("dnd_off_at", v).apply()

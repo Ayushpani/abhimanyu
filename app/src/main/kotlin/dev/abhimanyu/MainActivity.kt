@@ -15,6 +15,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.provider.Settings
 import android.view.Gravity
 import android.view.View
@@ -54,6 +55,7 @@ class MainActivity : Activity() {
     private lateinit var ink: InkView
     private lateinit var status: TextView
     private lateinit var caption: TextView
+    private lateinit var footer: TextView
     private lateinit var setupList: LinearLayout
 
     private val worker = Executors.newSingleThreadExecutor()
@@ -81,6 +83,7 @@ class MainActivity : Activity() {
         ink = findViewById(R.id.ink)
         status = findViewById(R.id.status)
         caption = findViewById(R.id.caption)
+        footer = findViewById(R.id.footer)
         setupList = findViewById(R.id.setupList)
 
         val content = findViewById<View>(R.id.content)
@@ -160,7 +163,7 @@ class MainActivity : Activity() {
         ink.setMode(InkView.Mode.LISTENING)
         capture.restrictToCommands = prefs.restrictVocabulary
         worker.execute {
-            Thread.sleep(150) // let the listening tone finish so it isn't recorded
+            Thread.sleep(90) // let the short listening tone finish so it isn't recorded
             val useGemma = gemmaReady()
             val clip = try {
                 capture.capture(useVosk = voskReady()) { level -> ink.setLevel(level) }
@@ -178,12 +181,19 @@ class MainActivity : Activity() {
         tones.heard()
         ink.setMode(InkView.Mode.THINKING)
 
+        val heardAt = SystemClock.elapsedRealtime()
+        timing = Timing(clipMs = clip.pcm.size * 1000L / SpeechCapture.SAMPLE_RATE)
         worker.execute {
             // Main brain: Gemma hears the clip itself. Backup: Vosk transcripts + rules.
-            val decision = (if (useGemma && clip.pcm.size > SpeechCapture.SAMPLE_RATE / 4) {
+            val answer = if (useGemma && clip.pcm.size > SpeechCapture.SAMPLE_RATE / 4) {
                 runCatching { gemma.understand(GemmaEngine.wav(clip.pcm)) }.getOrNull()
-                    ?.let { Understanding.fromGemma(it) }
-            } else null) ?: fromBackup(clip.transcripts)
+            } else null
+            val fromGemma = answer?.let { Understanding.fromGemma(it.text) }
+            val decision = fromGemma ?: fromBackup(clip.transcripts)
+            timing = timing?.copy(
+                listenMs = answer?.listenMs, writeMs = answer?.writeMs,
+                understoodMs = SystemClock.elapsedRealtime() - heardAt, usedGemma = fromGemma != null,
+            )
             main.post { onDecision(decision) }
             gemma.prepareNext()
         }
@@ -217,7 +227,9 @@ class MainActivity : Activity() {
         }
         val toRun = command
         worker.execute {
+            val actStart = SystemClock.elapsedRealtime()
             val outcome = executor.execute(toRun)
+            timing = timing?.copy(actMs = SystemClock.elapsedRealtime() - actStart)
             main.post {
                 if (outcome.ok && toRun !is Command.Stop) lastCommand = toRun
                 respond(outcome.reply, parsed.lang, outcome.ok, parsed.transcript, outcome.openSettings)
@@ -235,10 +247,37 @@ class MainActivity : Activity() {
             caption.visibility = View.VISIBLE
         }
         if (ok) { tones.done(); ink.setMode(InkView.Mode.DONE) } else { tones.failed(); ink.setMode(InkView.Mode.FAILED) }
-        // Speak just after the tone so they don't overlap.
+        // Speak just after the short tone so they don't overlap.
         main.postDelayed({
+            showTiming()
             speaker.speak(u) { main.post { finishTurn(openSettings) } }
-        }, 260)
+        }, 120)
+    }
+
+    /** Where the time went, shown under the mic so speed can be measured on the phone. */
+    private data class Timing(
+        val clipMs: Long,
+        val listenMs: Long? = null,
+        val writeMs: Long? = null,
+        val understoodMs: Long? = null,
+        val actMs: Long? = null,
+        val usedGemma: Boolean = false,
+        val startedAt: Long = SystemClock.elapsedRealtime(),
+    )
+    private var timing: Timing? = null
+
+    private fun showTiming() {
+        val t = timing ?: return
+        timing = null
+        if (!prefs.showTimings) return
+        fun s(ms: Long?) = if (ms == null) "–" else "%.1f s".format(ms / 1000f)
+        val total = SystemClock.elapsedRealtime() - t.startedAt
+        footer.text = if (t.usedGemma) {
+            "you spoke ${s(t.clipMs)} · Gemma hears ${s(t.listenMs)} · writes ${s(t.writeMs)} · " +
+                "acts ${s(t.actMs)} · total ${s(total)} after you stopped"
+        } else {
+            "backup · understood ${s(t.understoodMs)} · acts ${s(t.actMs)} · total ${s(total)} after you stopped"
+        }
     }
 
     private fun finishTurn(openSettings: Intent?) {
@@ -322,6 +361,10 @@ class MainActivity : Activity() {
             renderSetup()
         }
         toggle("Captions", "Show what I heard and replied", prefs.captions) { prefs.captions = it }
+        toggle("Show timings", "Under the mic: how long each step took", prefs.showTimings) {
+            prefs.showTimings = it
+            if (!it) footer.text = "fully offline"
+        }
         toggle("Backup: command words only", "Limits Vosk to known commands; more accurate", prefs.restrictVocabulary) {
             prefs.restrictVocabulary = it
         }

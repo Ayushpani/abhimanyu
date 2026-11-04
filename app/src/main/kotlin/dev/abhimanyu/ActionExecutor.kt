@@ -63,6 +63,8 @@ class ActionExecutor(private val context: Context, private val prefs: Prefs) {
                 Command.Stop -> Outcome(Reply.Stopped, true)
                 Command.LockPhone -> Outcome(Reply.LockNeedsControlMode, false)
                 is Command.Unsupported -> Outcome(Reply.CantDoYet, false)
+                // Taught tasks need fingerprint and control mode; the activity runs them, not Layer 1.
+                is Command.RunTask, is Command.ScheduleTasks -> Outcome(Reply.CantDoYet, false)
                 Command.Repeat -> Outcome(Reply.NothingToRepeat, false) // handled by the caller
             }
         } catch (e: SecurityException) {

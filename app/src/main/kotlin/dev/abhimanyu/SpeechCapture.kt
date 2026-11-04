@@ -125,7 +125,7 @@ class SpeechCapture(private val models: ModelStore) {
     companion object {
         const val SAMPLE_RATE = 16000
         private const val FRAME = 1600            // 100 ms
-        private const val END_SILENCE_MS = 900
+        private const val END_SILENCE_MS = 700 // how long a pause means "done speaking"
         private const val NO_SPEECH_MS = 4000
         private const val MAX_MS = 8000
     }

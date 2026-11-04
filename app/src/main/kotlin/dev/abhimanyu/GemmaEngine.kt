@@ -11,11 +11,19 @@ import com.google.ai.edge.litertlm.Conversation
 import com.google.ai.edge.litertlm.ConversationConfig
 import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
+import com.google.ai.edge.litertlm.Message
+import com.google.ai.edge.litertlm.MessageCallback
+import com.google.ai.edge.litertlm.ModelInfo
+import com.google.ai.edge.litertlm.ExperimentalApi
+import com.google.ai.edge.litertlm.ExperimentalFlags
 import com.google.ai.edge.litertlm.ResponseFormat
 import com.google.ai.edge.litertlm.SamplerConfig
 import com.google.ai.edge.litertlm.ThinkingConfig
 import dev.abhimanyu.core.GemmaProtocol
+import android.os.SystemClock
 import java.io.File
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 /**
  * Gemma 4 E2B through LiteRT-LM: the main brain. It hears the audio clip directly and answers
@@ -48,16 +56,29 @@ class GemmaEngine(private val context: Context) {
     }
 
     /** Loads the model, GPU first, CPU if the GPU fails. Takes several seconds; background only. */
+    @OptIn(ExperimentalApi::class)
+    @Suppress("DEPRECATION")
     @Synchronized
     fun load() {
         if (engine != null) return
         if (!isInstalled()) { status = Status.NOT_INSTALLED; return }
         status = Status.LOADING
         detail = "Loading on GPU…"
-        val attempts = listOf("GPU" to { Backend.GPU() }, "CPU" to { Backend.CPU() })
+        // Gemma 4's multi-token prediction drafts several tokens per step and the model checks
+        // them, so the answer is the same, only faster. Uses the same flag as Edge Gallery on
+        // LiteRT-LM 0.18.1.
+        val mtpSupported = runCatching {
+            ModelInfo.from(modelFile.absolutePath).use { (it as? ModelInfo.Llm)?.hasSpeculativeDecodingSupport() == true }
+        }.getOrDefault(false)
+        val attempts = buildList {
+            if (mtpSupported) add(Triple("GPU", true) { Backend.GPU() })
+            add(Triple("GPU", false) { Backend.GPU() })
+            add(Triple("CPU", false) { Backend.CPU() })
+        }
         var lastError: Throwable? = null
-        for ((name, backend) in attempts) {
+        for ((name, mtp, backend) in attempts) {
             try {
+                ExperimentalFlags.enableSpeculativeDecoding = mtp
                 val e = Engine(
                     EngineConfig(
                         modelPath = modelFile.absolutePath,
@@ -69,11 +90,11 @@ class GemmaEngine(private val context: Context) {
                 )
                 e.initialize()
                 engine = e
-                detail = "Ready on $name"
+                detail = "Ready on $name" + if (mtp) " · fast decoding on" else ""
                 break
             } catch (t: Throwable) {
                 lastError = t
-                detail = "Loading on CPU…"
+                detail = if (name == "GPU" && mtp) "Loading on GPU…" else "Loading on CPU…"
             }
         }
         if (engine == null) {
@@ -124,30 +145,58 @@ class GemmaEngine(private val context: Context) {
     }
 
     /**
-     * Sends one WAV clip and returns Gemma's raw reply text (expected to be a JSON object).
-     * Blocks for about a second or two; run off the main thread.
+     * Gemma's reply plus where the time went: [listenMs] is hearing the clip (audio encoder and
+     * prompt) until the first word comes out, [writeMs] is writing the rest of the answer.
+     */
+    class Answer(val text: String, val listenMs: Long, val writeMs: Long, val chunks: Int)
+
+    /**
+     * Sends one WAV clip and returns Gemma's raw reply (expected to be a JSON object), streamed
+     * so the two phases can be timed separately. Blocks; run off the main thread.
      */
     @Synchronized
-    fun understand(wav: ByteArray): String {
+    fun understand(wav: ByteArray): Answer {
         val conversation = warm ?: newConversation()
         warm = null
         try {
             val contents = Contents.of(Content.AudioBytes(wav), Content.Text(GemmaProtocol.USER_PROMPT))
-            val reply = if (useResponseFormat) {
-                try {
-                    conversation.sendMessage(contents, responseFormat = ResponseFormat.json(GemmaProtocol.SCHEMA))
-                } catch (e: IllegalArgumentException) {
-                    // Constrained decoding unavailable: rely on the prompt, the parser still validates.
-                    useResponseFormat = false
-                    conversation.sendMessage(contents)
-                }
-            } else {
-                conversation.sendMessage(contents)
+            return try {
+                stream(conversation, contents, if (useResponseFormat) ResponseFormat.json(GemmaProtocol.SCHEMA) else null)
+            } catch (e: IllegalArgumentException) {
+                // Constrained decoding unavailable: rely on the prompt, the parser still validates.
+                useResponseFormat = false
+                stream(conversation, contents, null)
             }
-            return reply.contents.contents.filterIsInstance<Content.Text>().joinToString("") { it.text }
         } finally {
             runCatching { conversation.close() }
         }
+    }
+
+    private fun stream(conversation: Conversation, contents: Contents, format: ResponseFormat?): Answer {
+        val start = SystemClock.elapsedRealtime()
+        var first = 0L
+        var chunks = 0
+        val text = StringBuilder()
+        val done = CountDownLatch(1)
+        var error: Throwable? = null
+        conversation.sendMessageAsync(
+            contents,
+            object : MessageCallback {
+                override fun onMessage(message: Message) {
+                    if (first == 0L) first = SystemClock.elapsedRealtime()
+                    chunks++
+                    message.contents.contents.filterIsInstance<Content.Text>().forEach { text.append(it.text) }
+                }
+                override fun onDone() = done.countDown()
+                override fun onError(throwable: Throwable) { error = throwable; done.countDown() }
+            },
+            responseFormat = format,
+        )
+        if (!done.await(30, TimeUnit.SECONDS)) error("Gemma took longer than 30 s")
+        error?.let { throw it }
+        val end = SystemClock.elapsedRealtime()
+        if (first == 0L) first = end
+        return Answer(text.toString(), first - start, end - first, chunks)
     }
 
     @Synchronized

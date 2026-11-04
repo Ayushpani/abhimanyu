@@ -22,9 +22,26 @@ android {
         }
     }
 
+    // One signing key for every build, so a new APK installs over the old one and keeps the
+    // imported models. CI restores it from its cache or a repository secret (see the workflow).
+    val stableKeystore = rootProject.file("ci-signing/abhimanyu.jks")
+    val keystorePassword = System.getenv("ABHIMANYU_KEYSTORE_PASSWORD") ?: "abhimanyu-local"
+    signingConfigs {
+        create("stable") {
+            storeFile = stableKeystore
+            storePassword = keystorePassword
+            keyAlias = "abhimanyu"
+            keyPassword = keystorePassword
+        }
+    }
+
     buildTypes {
+        debug {
+            if (stableKeystore.exists()) signingConfig = signingConfigs.getByName("stable")
+        }
         release {
             isMinifyEnabled = false
+            if (stableKeystore.exists()) signingConfig = signingConfigs.getByName("stable")
         }
     }
 
