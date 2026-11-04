@@ -88,6 +88,12 @@ sealed class Command(val tier: Tier) {
     /** Needs the accessibility service, which arrives in Phase 4. */
     data object LockPhone : Command(Tier.SAFE)
 
+    /** Replay a task taught with "watch me". Taps that submit something, so fingerprint first. */
+    data class RunTask(val name: String) : Command(Tier.SENSITIVE)
+
+    /** Save repeating schedules for taught tasks ("clock in at 10, Monday to Friday"). */
+    data class ScheduleTasks(val schedules: List<SpokenSchedule>) : Command(Tier.PERSONAL)
+
     /** Understood, but not something this build can do yet. */
     data class Unsupported(val what: String) : Command(Tier.SAFE)
 }

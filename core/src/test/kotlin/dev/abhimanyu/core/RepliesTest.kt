@@ -43,7 +43,10 @@ class RepliesTest {
             Reply.ReplyLanguageSet(ReplyLanguagePref.MATCH), Reply.CaptionsSet(false), Reply.Help, Reply.Stopped,
             Reply.NotUnderstood, Reply.NothingToRepeat, Reply.CantDoYet, Reply.LockNeedsControlMode,
             Reply.NeedsPermission(Reply.Permission.DND_ACCESS), Reply.Failed, Reply.ModelsMissing,
-        )
+            Reply.TaskStarting("Clock in"), Reply.TaskDone("Clock in", true), Reply.TaskDone("Clock in", false),
+            Reply.TaskUnknown("gym"), Reply.TaskDue("Clock in"), Reply.TasksScheduled(listOf("Clock in at 10 AM, Monday to Friday")),
+            Reply.NeedsControlMode, Reply.Cancelled,
+        ) + Reply.TaskFailure.entries.map { Reply.TaskFailed("Clock in", it, "Punch In") }
         for (r in replies) for (l in Lang.entries) {
             val u = ReplyRenderer.render(r, l)
             assertTrue(u.text.isNotBlank() && u.caption.isNotBlank() && u.fallback.isNotBlank(), "$r in $l")

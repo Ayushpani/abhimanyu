@@ -30,7 +30,18 @@ sealed interface Reply {
     data object Failed : Reply
     data object ModelsMissing : Reply
 
+    // Taught tasks
+    data class TaskStarting(val name: String) : Reply
+    data class TaskDone(val name: String, val verified: Boolean) : Reply
+    data class TaskFailed(val name: String, val reason: TaskFailure, val detail: String = "") : Reply
+    data class TaskUnknown(val spoken: String) : Reply
+    data class TaskDue(val name: String) : Reply
+    data class TasksScheduled(val summaries: List<String>) : Reply
+    data object NeedsControlMode : Reply
+    data object Cancelled : Reply
+
     enum class Permission { MICROPHONE, DND_ACCESS, MODIFY_SETTINGS }
+    enum class TaskFailure { NOT_FOUND, LOGIN_NEEDED, BLOCKED_APP, TIMEOUT, APP_MISSING, UNVERIFIED, CANCELLED }
 }
 
 /**
@@ -119,6 +130,22 @@ object ReplyRenderer {
         }
         Reply.Failed -> "That didn't work."
         Reply.ModelsMissing -> "The speech model isn't installed yet. Import it in the app first."
+        is Reply.TaskStarting -> "Starting ${r.name}."
+        is Reply.TaskDone -> if (r.verified) "${r.name} done." else "${r.name}: I tapped every step, but couldn't confirm it worked. Please check."
+        is Reply.TaskFailed -> "${r.name} stopped. " + when (r.reason) {
+            Reply.TaskFailure.NOT_FOUND -> "I can't find ${r.detail}."
+            Reply.TaskFailure.LOGIN_NEEDED -> "The app wants you to log in. Log in once, then try again."
+            Reply.TaskFailure.BLOCKED_APP -> "I'm not allowed to use payment, banking or photo apps."
+            Reply.TaskFailure.TIMEOUT -> "That took too long."
+            Reply.TaskFailure.APP_MISSING -> "The app isn't installed."
+            Reply.TaskFailure.UNVERIFIED -> "I didn't see ${r.detail}."
+            Reply.TaskFailure.CANCELLED -> "Cancelled."
+        }
+        is Reply.TaskUnknown -> "I don't have a task called ${r.spoken}. Teach it in the app first."
+        is Reply.TaskDue -> "Time to ${r.name.lowercase()}. Touch the fingerprint sensor to start."
+        is Reply.TasksScheduled -> "Scheduled: ${r.summaries.joinToString("; ")}."
+        Reply.NeedsControlMode -> "Control mode is off. Turn on Abhimanyu in Accessibility settings."
+        Reply.Cancelled -> "Okay, cancelled."
     }
 
     // ---------- Hindi (spoken text, Roman fallback) ----------
@@ -178,6 +205,28 @@ object ReplyRenderer {
         }
         Reply.Failed -> "यह नहीं हो पाया।" to "Yeh nahi ho paya."
         Reply.ModelsMissing -> "आवाज़ पहचानने वाला मॉडल अभी इंस्टॉल नहीं है।" to "Speech model abhi install nahi hai."
+        is Reply.TaskStarting -> "${r.name} शुरू कर रहा हूँ।" to "${r.name} shuru kar raha hoon."
+        is Reply.TaskDone -> if (r.verified) "${r.name} हो गया।" to "${r.name} ho gaya."
+            else "${r.name}: सारे बटन दबा दिए, पर पक्का नहीं कर पाया। एक बार देख लीजिए।" to "${r.name}: saare button daba diye, par pakka nahi kar paya. Ek baar dekh lijiye."
+        is Reply.TaskFailed -> taskFailedHi(r)
+        is Reply.TaskUnknown -> "${r.spoken} नाम का कोई काम सेव नहीं है। पहले ऐप में सिखाइए।" to "${r.spoken} naam ka koi kaam save nahi hai. Pehle app mein sikhaiye."
+        is Reply.TaskDue -> "${r.name} का समय हो गया। शुरू करने के लिए फ़िंगरप्रिंट लगाइए।" to "${r.name} ka samay ho gaya. Shuru karne ke liye fingerprint lagaiye."
+        is Reply.TasksScheduled -> "सेट कर दिया: ${r.summaries.joinToString("; ")}।" to "Set kar diya: ${r.summaries.joinToString("; ")}."
+        Reply.NeedsControlMode -> "कंट्रोल मोड बंद है। Accessibility सेटिंग में Abhimanyu चालू कीजिए।" to "Control mode band hai. Accessibility settings mein Abhimanyu chalu kijiye."
+        Reply.Cancelled -> "ठीक है, रद्द कर दिया।" to "Theek hai, radd kar diya."
+    }
+
+    private fun taskFailedHi(r: Reply.TaskFailed): Pair<String, String> {
+        val (hi, roman) = when (r.reason) {
+            Reply.TaskFailure.NOT_FOUND -> "${r.detail} नहीं मिला।" to "${r.detail} nahi mila."
+            Reply.TaskFailure.LOGIN_NEEDED -> "ऐप लॉगिन माँग रहा है। एक बार लॉगिन करके फिर कोशिश कीजिए।" to "App login maang raha hai. Ek baar login karke phir koshish kijiye."
+            Reply.TaskFailure.BLOCKED_APP -> "पेमेंट, बैंक या फ़ोटो ऐप मैं नहीं चला सकता।" to "Payment, bank ya photo app main nahi chala sakta."
+            Reply.TaskFailure.TIMEOUT -> "बहुत समय लग गया।" to "Bahut samay lag gaya."
+            Reply.TaskFailure.APP_MISSING -> "ऐप इंस्टॉल नहीं है।" to "App install nahi hai."
+            Reply.TaskFailure.UNVERIFIED -> "${r.detail} नहीं दिखा।" to "${r.detail} nahi dikha."
+            Reply.TaskFailure.CANCELLED -> "रद्द कर दिया।" to "Radd kar diya."
+        }
+        return "${r.name} रुक गया। $hi" to "${r.name} ruk gaya. $roman"
     }
 
     // ---------- Hinglish (spoken mixed-script text, Roman caption) ----------
@@ -235,6 +284,15 @@ object ReplyRenderer {
         }
         Reply.Failed -> "यह नहीं हो पाया।" to "Yeh nahi ho paya."
         Reply.ModelsMissing -> "Speech model अभी install नहीं है।" to "Speech model abhi install nahi hai."
+        is Reply.TaskStarting -> "${r.name} start कर रहा हूँ।" to "${r.name} start kar raha hoon."
+        is Reply.TaskDone -> if (r.verified) "${r.name} done हो गया।" to "${r.name} done ho gaya."
+            else "${r.name}: सारे steps कर दिए, पर confirm नहीं हुआ। एक बार check कर लो।" to "${r.name}: saare steps kar diye, par confirm nahi hua. Ek baar check kar lo."
+        is Reply.TaskFailed -> taskFailedHi(r)
+        is Reply.TaskUnknown -> "${r.spoken} नाम का कोई task नहीं है। पहले app में teach करो।" to "${r.spoken} naam ka koi task nahi hai. Pehle app mein teach karo."
+        is Reply.TaskDue -> "${r.name} का time हो गया। Start करने के लिए fingerprint लगाओ।" to "${r.name} ka time ho gaya. Start karne ke liye fingerprint lagao."
+        is Reply.TasksScheduled -> "Schedule कर दिया: ${r.summaries.joinToString("; ")}।" to "Schedule kar diya: ${r.summaries.joinToString("; ")}."
+        Reply.NeedsControlMode -> "Control mode off है। Accessibility settings में Abhimanyu on करो।" to "Control mode off hai. Accessibility settings mein Abhimanyu on karo."
+        Reply.Cancelled -> "ठीक है, cancel कर दिया।" to "Theek hai, cancel kar diya."
     }
 
     // ---------- formatting helpers ----------
@@ -305,6 +363,19 @@ object ReplyRenderer {
         if (m > 0) out += "$m minute"
         if (s > 0) out += "$s second"
         return out.joinToString(" ")
+    }
+
+    /** "Clock in at 10 AM, Monday to Friday". English only: used inside all three languages' replies. */
+    fun scheduleSummary(name: String, days: Set<java.time.DayOfWeek>, hour: Int, minute: Int): String {
+        val sorted = days.sorted()
+        val weekdays = java.time.DayOfWeek.entries.take(5).toSet()
+        val dayText = when {
+            days.size == 7 -> "every day"
+            days == weekdays -> "Monday to Friday"
+            days == setOf(java.time.DayOfWeek.SATURDAY, java.time.DayOfWeek.SUNDAY) -> "weekends"
+            else -> sorted.joinToString(", ") { dayEn(it) }
+        }
+        return "$name at ${clockEn(hour, minute)}, $dayText"
     }
 
     private fun h12(hour: Int) = (hour % 12).let { if (it == 0) 12 else it }

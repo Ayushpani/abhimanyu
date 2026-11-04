@@ -11,10 +11,10 @@ object Understanding {
 
     data class Result(val parsed: Parsed?, val best: Transcript?)
 
-    fun choose(transcripts: List<Transcript>): Result {
+    fun choose(transcripts: List<Transcript>, taskNames: List<String> = emptyList()): Result {
         val heard = transcripts.filter { it.text.isNotBlank() }
         val parsed = heard
-            .mapNotNull { t -> CommandParser.parse(t.text)?.let { t to it } }
+            .mapNotNull { t -> parseWithTasks(t.text, taskNames)?.let { t to it } }
             .maxByOrNull { (t, _) -> t.confidence }
         if (parsed != null) return Result(parsed.second, parsed.first)
         return Result(null, heard.maxByOrNull { it.confidence })
@@ -34,17 +34,24 @@ object Understanding {
      * rule parser gets a second look at Gemma's transcript. Returns null if the reply isn't usable
      * at all, so the caller can fall back to the backup recognizer.
      */
-    fun fromGemma(json: String): Decision? {
+    fun fromGemma(json: String, taskNames: List<String> = emptyList()): Decision? {
         val r = GemmaProtocol.read(json) ?: return null
         r.command?.let { return Decision.Run(Parsed(it, r.lang, r.transcript)) }
         if (r.transcript.isNotBlank()) {
-            CommandParser.parse(r.transcript)?.let { return Decision.Run(it.copy(lang = r.lang)) }
+            parseWithTasks(r.transcript, taskNames)?.let { return Decision.Run(it.copy(lang = r.lang)) }
         }
         return when {
             r.transcript.isBlank() || r.tool == "nothing_heard" -> Decision.NotHeard(r.transcript, r.lang)
             r.tool == "unsupported" -> Decision.OutOfScope(r.transcript, r.lang)
             else -> Decision.NotHeard(r.transcript, r.lang) // a known tool with missing arguments
         }
+    }
+
+    /** Rule parser first; otherwise a transcript that names a saved task ("clock in karo") runs it. */
+    fun parseWithTasks(transcript: String, taskNames: List<String>): Parsed? {
+        CommandParser.parse(transcript)?.let { return it }
+        val name = TaskNames.findInTranscript(transcript, taskNames) ?: return null
+        return Parsed(Command.RunTask(name), LanguageDetector.detect(transcript, Normalizer.normalize(transcript)), transcript.trim())
     }
 
     /** Best guess at the language of something we couldn't parse, so "say that again" matches it. */
