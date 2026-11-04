@@ -48,6 +48,17 @@ and controlling other apps.
 4. Allow **Do Not Disturb access** (for silent mode and DND) and **Modify system settings** (for brightness).
 5. Tap the mic and try "flashlight on", "torch band karo" or "दस मिनट का टाइमर लगाओ".
 
+6. **Always listening:** under "Always listening", turn on "Listen for “Hey Abhimanyu”" and allow
+   notifications. A notification with Pause and Stop stays while it listens, even with the app closed.
+   - The wake word ear needs the small Hindi Vosk model (`vosk-model-small-hi-0.22.zip`, about 40 MB;
+     Indian English works too if it knows the word). Gemma still does all the understanding.
+   - Turn on **Control mode** (Settings → Accessibility → Abhimanyu; if it's greyed out, first App info →
+     ⋮ → Allow restricted settings). It draws the ink over other apps, locks the phone, and lets timers
+     and alarms work while the app is closed.
+   - Set **Battery: unrestricted** so Android doesn't stop listening.
+   - After a phone restart, tap the "Tap to start listening" notification once; Android doesn't let
+     the microphone start by itself.
+
 Optional backup: `vosk-model-small-en-in-0.4.zip` and `vosk-model-small-hi-0.22.zip` from the
 Vosk models page, imported under "Backup speech". Skip these unless you want a fallback.
 
