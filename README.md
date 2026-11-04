@@ -36,8 +36,9 @@ and controlling other apps.
    artifact, unzip it, and open `app-debug.apk` on the phone. Allow installing from that source when asked.
 2. **Gemma 4 E2B:** in Chrome, download exactly `gemma-4-E2B-it.litertlm` (2.59 GB) from
    huggingface.co/litert-community/gemma-4-E2B-it-litert-lm (Files tab). The Pixel 10a's Tensor G4
-   runs this general build on its GPU. The `_Google_Tensor_G5`/`G6`, `_NPU_`, `Qualcomm`, `intel`,
-   `-web` and `-gpu` files are built for other chips or runtimes, and won't load here. Then in Abhimanyu tap
+   runs this general build on its GPU, and it is the file Edge Gallery uses for audio input.
+   The `_Google_Tensor_G5`/`G6`, `_NPU_`, `Qualcomm`, `intel` and `-web` files are built for other
+   chips or runtimes, and won't load here. The app refuses them at import. Then in Abhimanyu tap
    **Import** next to "Gemma 4 E2B" and pick the file. It is copied into the app's private
    storage, and you can delete the download afterwards.
    - The copy Edge Gallery downloaded can't be reused, because Android keeps each app's files
