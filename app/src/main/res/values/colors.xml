@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Syahi: black ink on cool grey paper, with one small vermilion seal. -->
 <resources>
-    <color name="bg">#0E0B16</color>
-    <color name="surface">#1A1626</color>
-    <color name="text">#F3EFFA</color>
-    <color name="text_dim">#A49DB5</color>
-    <color name="saffron">#FF9430</color>
-    <color name="magenta">#EB3894</color>
-    <color name="indigo">#5547F2</color>
-    <color name="ok">#5FD49A</color>
-    <color name="warn">#F2B45A</color>
+    <color name="paper">#E9EBE8</color>
+    <color name="paper_deep">#DDE0DC</color>
+    <color name="ink">#17191B</color>
+    <color name="ink_soft">#62676B</color>
+    <color name="hairline">#C9CDC8</color>
+    <color name="seal">#A8352A</color>
+    <!-- The launcher icon stays paper-coloured in both themes. -->
+    <color name="launcher_bg">#E9EBE8</color>
 </resources>

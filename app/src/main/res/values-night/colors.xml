@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Syahi at night: pale ink on dark ink-stone. The seal stays the one warm mark. -->
+<resources>
+    <color name="paper">#141516</color>
+    <color name="paper_deep">#1E2022</color>
+    <color name="ink">#E4E5E1</color>
+    <color name="ink_soft">#999D9F</color>
+    <color name="hairline">#33363A</color>
+    <color name="seal">#C4493B</color>
+</resources>

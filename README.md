@@ -11,7 +11,7 @@ and blocks payments, banking, photo access and message reading by design.
 Tap the mic and speak a Tier 0 command in English, Hindi or Hinglish. **Gemma 4 E2B** hears
 the audio directly and returns a transcript, the language and one command from a fixed list.
 The command runs through direct Android APIs, and the assistant replies in the language you spoke,
-with tones, haptics and the edge glow. Vosk plus the rule parser is an optional backup, used only
+with tones, haptics and the Syahi ink animation (ink rings, a brush circle, a vermilion seal). Vosk plus the rule parser is an optional backup, used only
 if Gemma isn't loaded.
 
 Works now:

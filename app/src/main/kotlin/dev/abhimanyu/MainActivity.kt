@@ -6,7 +6,11 @@ import android.app.AlertDialog
 import android.app.NotificationManager
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.res.ColorStateList
 import android.graphics.Typeface
+import android.text.SpannableString
+import android.text.Spanned
+import android.text.style.ForegroundColorSpan
 import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
@@ -33,7 +37,7 @@ import java.util.concurrent.Executors
 /**
  * Tap the mic and speak a Tier 0 command in English, Hindi or Hinglish. Gemma 4 E2B hears the
  * audio and picks a command (Vosk + rules are the optional backup); it runs through direct
- * Android APIs, with a spoken reply in your language, tones, and the edge glow.
+ * Android APIs, with a spoken reply in your language, tones, and the Syahi ink animation.
  */
 class MainActivity : Activity() {
 
@@ -47,7 +51,7 @@ class MainActivity : Activity() {
     private lateinit var tones: Tones
     private lateinit var executor: ActionExecutor
 
-    private lateinit var glow: GlowView
+    private lateinit var ink: InkView
     private lateinit var status: TextView
     private lateinit var caption: TextView
     private lateinit var setupList: LinearLayout
@@ -74,7 +78,7 @@ class MainActivity : Activity() {
         tones = Tones(this)
         executor = ActionExecutor(this, prefs)
 
-        glow = findViewById(R.id.glow)
+        ink = findViewById(R.id.ink)
         status = findViewById(R.id.status)
         caption = findViewById(R.id.caption)
         setupList = findViewById(R.id.setupList)
@@ -87,7 +91,9 @@ class MainActivity : Activity() {
             insets
         }
 
-        findViewById<ImageButton>(R.id.mic).setOnClickListener { onMicTapped() }
+        val mic = findViewById<ImageButton>(R.id.mic)
+        mic.setOnClickListener { onMicTapped() }
+        ink.anchorTo(mic)
         loadModels()
     }
 
@@ -151,13 +157,13 @@ class MainActivity : Activity() {
         main.removeCallbacks(hideCaption)
         caption.visibility = View.INVISIBLE
         tones.listening()
-        glow.setMode(GlowView.Mode.LISTENING)
+        ink.setMode(InkView.Mode.LISTENING)
         capture.restrictToCommands = prefs.restrictVocabulary
         worker.execute {
             Thread.sleep(150) // let the listening tone finish so it isn't recorded
             val useGemma = gemmaReady()
             val clip = try {
-                capture.capture(useVosk = voskReady()) { level -> glow.setLevel(level) }
+                capture.capture(useVosk = voskReady()) { level -> ink.setLevel(level) }
             } catch (e: Exception) {
                 SpeechCapture.Result(ShortArray(0), emptyList())
             }
@@ -170,7 +176,7 @@ class MainActivity : Activity() {
         state = State.THINKING
         status.setText(R.string.thinking)
         tones.heard()
-        glow.setMode(GlowView.Mode.THINKING)
+        ink.setMode(InkView.Mode.THINKING)
 
         worker.execute {
             // Main brain: Gemma hears the clip itself. Backup: Vosk transcripts + rules.
@@ -228,7 +234,7 @@ class MainActivity : Activity() {
             caption.text = if (heard.isNullOrBlank()) u.caption else "“$heard”  →  ${u.caption}"
             caption.visibility = View.VISIBLE
         }
-        if (ok) { tones.done(); glow.setMode(GlowView.Mode.DONE) } else { tones.failed(); glow.setMode(GlowView.Mode.FAILED) }
+        if (ok) { tones.done(); ink.setMode(InkView.Mode.DONE) } else { tones.failed(); ink.setMode(InkView.Mode.FAILED) }
         // Speak just after the tone so they don't overlap.
         main.postDelayed({
             speaker.speak(u) { main.post { finishTurn(openSettings) } }
@@ -333,18 +339,19 @@ class MainActivity : Activity() {
     private fun header(text: String) {
         setupList.addView(TextView(this).apply {
             this.text = text
-            setTextColor(getColor(R.color.text_dim))
-            textSize = 13f
-            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(getColor(R.color.ink_soft))
+            textSize = 12f
+            typeface = Typeface.create(resources.getFont(R.font.hind), 600, false)
             isAllCaps = true
-            setPadding(0, if (setupList.childCount == 0) 0 else dp(18), 0, dp(6))
+            letterSpacing = 0.1f
+            setPadding(0, if (setupList.childCount == 0) 0 else dp(22), 0, dp(4))
         })
     }
 
     private fun hint(text: String) {
         setupList.addView(TextView(this).apply {
             this.text = text
-            setTextColor(getColor(R.color.text))
+            setTextColor(getColor(R.color.ink))
             textSize = 14f
             setLineSpacing(0f, 1.3f)
         })
@@ -355,13 +362,23 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             addView(TextView(context).apply {
-                text = when (done) { true -> "✓  $title"; false -> "•  $title"; null -> title }
-                setTextColor(getColor(if (done == true) R.color.ok else R.color.text))
+                // A done item gets the vermilion tick, the only colour on the screen.
+                text = when (done) {
+                    true -> SpannableString("✓  $title").apply {
+                        setSpan(ForegroundColorSpan(getColor(R.color.seal)), 0, 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    }
+                    false -> SpannableString("·  $title").apply {
+                        setSpan(ForegroundColorSpan(getColor(R.color.ink_soft)), 0, 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    }
+                    null -> title
+                }
+                setTextColor(getColor(R.color.ink))
+                typeface = Typeface.create(resources.getFont(R.font.hind), 500, false)
                 textSize = 16f
             })
             addView(TextView(context).apply {
                 text = detail
-                setTextColor(getColor(R.color.text_dim))
+                setTextColor(getColor(R.color.ink_soft))
                 textSize = 13f
             })
         }
@@ -376,6 +393,18 @@ class MainActivity : Activity() {
                 addView(Button(context).apply {
                     text = action
                     isAllCaps = false
+                    background = getDrawable(R.drawable.ink_button)
+                    setTextColor(getColor(R.color.ink))
+                    textSize = 14f
+                    minHeight = dp(36)
+                    minimumHeight = dp(36)
+                    minWidth = 0
+                    minimumWidth = 0
+                    setPadding(dp(14), 0, dp(14), 0)
+                    stateListAnimator = null
+                    layoutParams = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.WRAP_CONTENT, dp(36),
+                    ).apply { marginStart = dp(12) }
                     setOnClickListener { onClick() }
                 })
             }
@@ -389,6 +418,9 @@ class MainActivity : Activity() {
             setPadding(0, dp(8), 0, dp(8))
             addView(textBlock(title, detail, null))
             addView(Switch(context).apply {
+                val states = arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf())
+                thumbTintList = ColorStateList(states, intArrayOf(getColor(R.color.ink), getColor(R.color.paper)))
+                trackTintList = ColorStateList(states, intArrayOf(getColor(R.color.ink_soft), getColor(R.color.hairline)))
                 isChecked = value
                 setOnCheckedChangeListener { _, checked -> onChange(checked) }
             })
